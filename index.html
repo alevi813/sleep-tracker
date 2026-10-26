@@ -11,8 +11,8 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>Overnight sleep tracker</title>
-  <link rel="manifest" href="./manifest.json?v=4" />
-  <link rel="stylesheet" href="./styles.css?v=4" />
+  <link rel="manifest" href="./manifest.json?v=5" />
+  <link rel="stylesheet" href="./styles.css?v=5" />
 </head>
 <body>
   <header class="app-header">
@@ -27,44 +27,25 @@
       </div>
     </div>
 
-    <div class="header-actions">
-      <div class="view-tabs" role="tablist">
-        <button id="tabChartBtn" class="tab-btn active" role="tab" aria-selected="true">
-          Schedule Visualization
-        </button>
-        <button id="tabGridBtn" class="tab-btn" role="tab" aria-selected="false">
-          CSV Time Grid (5-min)
-        </button>
-      </div>
-
-      <div class="action-buttons">
-        <button id="cloudSyncBtn" class="btn btn-sync" type="button" title="Configure or unlock cross-device GitHub sync">
-          <span id="cloudSyncDot" class="sync-dot unconfigured"></span>
-          <span id="cloudSyncLabel">Cloud Sync</span>
-        </button>
-        <button id="syncPullNowBtn" class="btn btn-secondary hidden" type="button" title="Pull latest schedule from GitHub now">
-          ↻ Sync
-        </button>
-        <label class="btn btn-secondary" for="csvFileInput" title="Import a schedule CSV file">
-          Import CSV
-          <input type="file" id="csvFileInput" accept=".csv,text/csv" hidden />
-        </label>
-        <button id="exportCsvBtn" class="btn btn-secondary" title="Download schedule as CSV">
-          Export CSV
-        </button>
-        <button id="downloadPngBtn" class="btn btn-primary" title="Download high-resolution PNG chart">
-          Download PNG
-        </button>
-        <button id="resetDataBtn" class="btn btn-ghost" title="Reset to original 19-Oct to 25-Oct CSV data">
-          Reset Data
-        </button>
-      </div>
-    </div>
+    <button id="mobileMenuBtn" class="btn mobile-menu-btn" type="button" aria-label="Open night and transition controls" aria-expanded="false">
+      <span class="hamburger-icon" aria-hidden="true">☰</span>
+      <span>Edit Nights &amp; Times</span>
+    </button>
   </header>
 
+  <div id="mobileDrawerBackdrop" class="mobile-drawer-backdrop hidden"></div>
+
   <main class="app-layout">
-    <!-- Left Sidebar: Date Management & Up/Down Editor -->
-    <aside class="editor-panel">
+    <!-- Left Sidebar (Desktop) / Slide-out Hamburger Drawer (Mobile) -->
+    <aside id="editorPanel" class="editor-panel">
+      <div class="mobile-drawer-header">
+        <div>
+          <strong>Edit Nights &amp; Transitions</strong>
+          <span class="muted-label" style="display:block;">1. Select Night · 2. Add Time · 3. Transitions</span>
+        </div>
+        <button type="button" id="mobileDrawerCloseBtn" class="popover-close" aria-label="Close menu">&times;</button>
+      </div>
+
       <!-- Section 1: Date / Night Selector -->
       <section class="panel-card">
         <div class="card-header">
@@ -291,30 +272,40 @@
         <!-- Offscreen high-DPI canvas used when clicking "Download PNG" -->
         <canvas id="scheduleCanvas" class="hidden"></canvas>
       </div>
-
-      <!-- View 2: 5-Minute CSV Time Grid Editor -->
-      <div id="gridViewContainer" class="grid-card hidden">
-        <div class="grid-toolbar">
-          <div>
-            <h3>5-Minute Schedule Grid</h3>
-            <p class="muted-label">Click any cell to cycle: <code>Empty → down → up → Empty</code></p>
-          </div>
-          <div class="grid-filters">
-            <label class="checkbox-label">
-              <input type="checkbox" id="filterActiveRowsCheckbox" />
-              Show only rows with events
-            </label>
-          </div>
-        </div>
-        <div class="table-scroll-container">
-          <table id="scheduleGridTable" class="schedule-grid-table">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
     </section>
   </main>
+
+  <!-- Bottom Bar: Cloud Sync, CSV Import/Export, Download PNG, Reset -->
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <div class="footer-label">
+        <strong>Sync &amp; Export</strong>
+        <span class="muted-label">Manage cross-device GitHub sync, CSV backups, and PNG chart downloads</span>
+      </div>
+      <div class="action-buttons">
+        <button id="cloudSyncBtn" class="btn btn-sync" type="button" title="Configure or unlock cross-device GitHub sync">
+          <span id="cloudSyncDot" class="sync-dot unconfigured"></span>
+          <span id="cloudSyncLabel">Cloud Sync</span>
+        </button>
+        <button id="syncPullNowBtn" class="btn btn-secondary hidden" type="button" title="Pull latest schedule from GitHub now">
+          ↻ Sync
+        </button>
+        <label class="btn btn-secondary" for="csvFileInput" title="Import a schedule CSV file">
+          Import CSV
+          <input type="file" id="csvFileInput" accept=".csv,text/csv" hidden />
+        </label>
+        <button id="exportCsvBtn" class="btn btn-secondary" title="Download schedule as CSV">
+          Export CSV
+        </button>
+        <button id="downloadPngBtn" class="btn btn-primary" title="Download high-resolution PNG chart">
+          Download PNG
+        </button>
+        <button id="resetDataBtn" class="btn btn-ghost" title="Reset to original 19-Oct to 25-Oct CSV data">
+          Reset Data
+        </button>
+      </div>
+    </div>
+  </footer>
 
   <!-- Cloud Sync & Shared PIN Modal -->
   <div id="syncModalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle">
@@ -466,6 +457,6 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="./app.js?v=4"></script>
+  <script src="./app.js?v=5"></script>
 </body>
 </html>

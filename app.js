@@ -96,6 +96,10 @@ const state = {
 
 // DOM Elements
 const els = {
+  mobileMenuBtn: document.getElementById("mobileMenuBtn"),
+  mobileDrawerBackdrop: document.getElementById("mobileDrawerBackdrop"),
+  mobileDrawerCloseBtn: document.getElementById("mobileDrawerCloseBtn"),
+  editorPanel: document.getElementById("editorPanel"),
   tabChartBtn: document.getElementById("tabChartBtn"),
   tabGridBtn: document.getElementById("tabGridBtn"),
   chartViewContainer: document.getElementById("chartViewContainer"),
@@ -2121,6 +2125,7 @@ function closePopover() {
 els.popoverCloseBtn.addEventListener("click", closePopover);
 
 function renderGridTable() {
+  if (!els.scheduleGridTable) return;
   const thead = els.scheduleGridTable.querySelector("thead");
   const tbody = els.scheduleGridTable.querySelector("tbody");
   thead.innerHTML = "";
@@ -2377,23 +2382,56 @@ els.deleteDateBtn.addEventListener("click", () => {
   saveScheduleToServer(`Deleted night ${removed}`);
 });
 
-els.tabChartBtn.addEventListener("click", () => {
-  els.tabChartBtn.classList.add("active");
-  els.tabGridBtn.classList.remove("active");
-  els.chartViewContainer.classList.remove("hidden");
-  els.gridViewContainer.classList.add("hidden");
-  renderChartCanvas(false);
+// Mobile Hamburger Drawer Controls
+function openMobileDrawer() {
+  if (!els.editorPanel) return;
+  els.editorPanel.classList.add("mobile-open");
+  if (els.mobileDrawerBackdrop) {
+    els.mobileDrawerBackdrop.classList.remove("hidden");
+  }
+  if (els.mobileMenuBtn) {
+    els.mobileMenuBtn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function closeMobileDrawer() {
+  if (!els.editorPanel) return;
+  els.editorPanel.classList.remove("mobile-open");
+  if (els.mobileDrawerBackdrop) {
+    els.mobileDrawerBackdrop.classList.add("hidden");
+  }
+  if (els.mobileMenuBtn) {
+    els.mobileMenuBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function toggleMobileDrawer() {
+  if (!els.editorPanel) return;
+  if (els.editorPanel.classList.contains("mobile-open")) {
+    closeMobileDrawer();
+  } else {
+    openMobileDrawer();
+  }
+}
+
+if (els.mobileMenuBtn) {
+  els.mobileMenuBtn.addEventListener("click", toggleMobileDrawer);
+}
+if (els.mobileDrawerCloseBtn) {
+  els.mobileDrawerCloseBtn.addEventListener("click", closeMobileDrawer);
+}
+if (els.mobileDrawerBackdrop) {
+  els.mobileDrawerBackdrop.addEventListener("click", closeMobileDrawer);
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeMobileDrawer();
+  }
 });
 
-els.tabGridBtn.addEventListener("click", () => {
-  els.tabGridBtn.classList.add("active");
-  els.tabChartBtn.classList.remove("active");
-  els.gridViewContainer.classList.remove("hidden");
-  els.chartViewContainer.classList.add("hidden");
-  renderGridTable();
-});
-
-els.filterActiveRowsCheckbox.addEventListener("change", renderGridTable);
+if (els.filterActiveRowsCheckbox) {
+  els.filterActiveRowsCheckbox.addEventListener("change", renderGridTable);
+}
 els.showHoverGuideCheckbox.addEventListener("change", () =>
   renderChartCanvas(false)
 );
