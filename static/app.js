@@ -145,8 +145,6 @@ const els = {
   blocksListContainer: document.getElementById("blocksListContainer"),
 
   summaryCardsContainer: document.getElementById("summaryCardsContainer"),
-  styleModernBtn: document.getElementById("styleModernBtn"),
-  styleClassicBtn: document.getElementById("styleClassicBtn"),
   showHoverGuideCheckbox: document.getElementById("showHoverGuideCheckbox"),
   interactiveChartBoard: document.getElementById("interactiveChartBoard"),
   timelineScrollHint: document.getElementById("timelineScrollHint"),
@@ -771,6 +769,21 @@ function scheduleGitHubPush() {
 // Hybrid Load/Save (GitHub Cloud Sync, Local Python API, or localStorage fallback)
 async function fetchSchedule() {
   populateTimeSelects();
+
+  // Render initial/cached schedule immediately on load (0ms latency) before awaiting network
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && Array.isArray(parsed.columns) && parsed.columns.length > 0) {
+        applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
+      }
+    }
+  } catch (_) {}
+  if (!state.columns || state.columns.length === 0) {
+    const initial = parseCsvClient(INITIAL_CSV_DATA);
+    applyScheduleData(buildPayloadClient(initial.columns, initial.events_by_col));
+  }
 
   const ghPage = detectGitHubPagesRepo();
   if (ghPage && els.setupRepoInput && !els.setupRepoInput.value) {
@@ -1480,13 +1493,31 @@ const HOURLY_AXIS_LABELS = [
 
 function renderAxisTicksOnce() {
   if (!els.timelineAxisBody) return;
+  els.timelineAxisBody.style.position = "relative";
+  els.timelineAxisBody.style.height = "680px";
+  els.timelineAxisBody.style.minHeight = "680px";
+  els.timelineAxisBody.style.flex = "0 0 680px";
+
   els.timelineAxisBody.querySelectorAll(".timeline-axis-tick").forEach((el) => el.remove());
   HOURLY_AXIS_LABELS.forEach((label, idx) => {
     const tick = document.createElement("div");
     tick.className = `timeline-axis-tick ${
       idx === 0 ? "edge-top" : idx === HOURLY_AXIS_LABELS.length - 1 ? "edge-bottom" : ""
     }`;
+    tick.style.position = "absolute";
+    tick.style.right = "8px";
     tick.style.top = `${(idx * 60 * 100) / 600}%`;
+    tick.style.transform =
+      idx === 0
+        ? "translateY(2px)"
+        : idx === HOURLY_AXIS_LABELS.length - 1
+        ? "translateY(-100%)"
+        : "translateY(-50%)";
+    tick.style.fontSize = "0.75rem";
+    tick.style.fontWeight = "600";
+    tick.style.color = "#334155";
+    tick.style.whiteSpace = "nowrap";
+    tick.style.pointerEvents = "none";
     tick.textContent = label;
     els.timelineAxisBody.appendChild(tick);
   });
@@ -1495,17 +1526,95 @@ function renderAxisTicksOnce() {
 function buildGridLinesFragment() {
   const container = document.createElement("div");
   container.className = "timeline-grid-lines";
+  container.style.position = "absolute";
+  container.style.inset = "0";
+  container.style.pointerEvents = "none";
+  container.style.zIndex = "5";
   for (let t = 15; t < 600; t += 15) {
     const line = document.createElement("div");
-    line.className = `timeline-grid-line ${t % 60 === 0 ? "hourly" : ""}`;
+    const isHourly = t % 60 === 0;
+    line.className = `timeline-grid-line ${isHourly ? "hourly" : ""}`;
+    line.style.position = "absolute";
+    line.style.left = "0";
+    line.style.right = "0";
     line.style.top = `${(t / 600) * 100}%`;
+    line.style.borderTop = isHourly
+      ? "1px dashed rgba(100, 116, 139, 0.55)"
+      : "1px dotted rgba(148, 163, 184, 0.42)";
     container.appendChild(line);
   }
   return container;
 }
 
+function ensureTimelineDomStructure() {
+  if (els.timelineColumnsTrack) return true;
+  if (!els.canvasWrapper) return false;
+
+  if (els.scheduleCanvas) {
+    els.scheduleCanvas.classList.add("hidden");
+    els.scheduleCanvas.style.display = "none";
+  }
+
+  const shell = document.createElement("div");
+  shell.id = "timelineGridShell";
+  shell.className = "timeline-grid-shell";
+
+  const axisCol = document.createElement("div");
+  axisCol.id = "timelineAxisCol";
+  axisCol.className = "timeline-axis-col";
+
+  const corner = document.createElement("div");
+  corner.className = "timeline-axis-corner";
+  corner.style.height = "58px";
+  corner.style.minHeight = "58px";
+  corner.style.flex = "0 0 58px";
+  corner.style.borderBottom = "1px solid #cbd5e1";
+  corner.style.display = "flex";
+  corner.style.alignItems = "center";
+  corner.style.justifyContent = "flex-end";
+  corner.style.paddingRight = "10px";
+  corner.style.fontSize = "0.72rem";
+  corner.style.fontWeight = "700";
+  corner.style.color = "#64748b";
+  corner.textContent = "Time";
+
+  const axisBody = document.createElement("div");
+  axisBody.id = "timelineAxisBody";
+  axisBody.className = "timeline-axis-body";
+
+  const hoverBadge = document.createElement("div");
+  hoverBadge.id = "axisHoverBadge";
+  hoverBadge.className = "axis-hover-badge hidden";
+  axisBody.appendChild(hoverBadge);
+
+  axisCol.appendChild(corner);
+  axisCol.appendChild(axisBody);
+
+  const track = document.createElement("div");
+  track.id = "timelineColumnsTrack";
+  track.className = "timeline-columns-track";
+
+  const crosshair = document.createElement("div");
+  crosshair.id = "timelineCrosshairLine";
+  crosshair.className = "timeline-crosshair-line hidden";
+
+  shell.appendChild(axisCol);
+  shell.appendChild(track);
+  shell.appendChild(crosshair);
+
+  els.canvasWrapper.insertBefore(shell, els.canvasWrapper.firstChild);
+
+  els.timelineGridShell = shell;
+  els.timelineAxisCol = axisCol;
+  els.timelineAxisBody = axisBody;
+  els.axisHoverBadge = hoverBadge;
+  els.timelineColumnsTrack = track;
+  els.timelineCrosshairLine = crosshair;
+  return true;
+}
+
 function renderInteractiveTimeline() {
-  if (!els.timelineColumnsTrack) return;
+  if (!ensureTimelineDomStructure()) return;
   renderAxisTicksOnce();
 
   const visibleCols = getVisibleColumns();
@@ -1514,8 +1623,28 @@ function renderInteractiveTimeline() {
 
   // Responsive column sizing: never squished on mobile!
   const minColPx = isMobile ? (nCols <= 3 ? 78 : 98) : 108;
+  const axisWidthPx = isMobile ? 64 : 76;
+
+  if (els.timelineGridShell) {
+    els.timelineGridShell.style.display = "flex";
+    els.timelineGridShell.style.position = "relative";
+    els.timelineGridShell.style.width = "100%";
+    els.timelineGridShell.style.minHeight = "738px";
+  }
+  if (els.timelineAxisCol) {
+    els.timelineAxisCol.style.position = "sticky";
+    els.timelineAxisCol.style.left = "0";
+    els.timelineAxisCol.style.zIndex = "16";
+    els.timelineAxisCol.style.width = `${axisWidthPx}px`;
+    els.timelineAxisCol.style.flex = `0 0 ${axisWidthPx}px`;
+    els.timelineAxisCol.style.display = "flex";
+    els.timelineAxisCol.style.flexDirection = "column";
+  }
+
   els.timelineColumnsTrack.style.setProperty("--col-min-width", `${minColPx}px`);
-  els.timelineColumnsTrack.style.gridTemplateColumns = `repeat(${nCols}, minmax(${minColPx}px, 1fr))`;
+  els.timelineColumnsTrack.style.display = "flex";
+  els.timelineColumnsTrack.style.flex = "1 0 auto";
+  els.timelineColumnsTrack.style.minHeight = "738px";
 
   if (els.timelineScrollHint) {
     els.timelineScrollHint.classList.toggle(
@@ -1527,18 +1656,48 @@ function renderInteractiveTimeline() {
   els.timelineColumnsTrack.innerHTML = "";
 
   visibleCols.forEach((col, colIdx) => {
+    const isActiveCol = col === state.activeDate;
     const colEl = document.createElement("div");
-    colEl.className = `timeline-col ${col === state.activeDate ? "active-col" : ""}`;
+    colEl.className = `timeline-col ${isActiveCol ? "active-col" : ""}`;
     colEl.dataset.col = col;
+    colEl.style.display = "flex";
+    colEl.style.flexDirection = "column";
+    colEl.style.flex = `1 0 ${minColPx}px`;
+    colEl.style.minWidth = `${minColPx}px`;
+    colEl.style.borderRight =
+      colIdx === visibleCols.length - 1 ? "none" : "1px solid #cbd5e1";
+    colEl.style.position = "relative";
 
     // 1. Column Header (Date + Total Sleep Summary)
     const st = state.statsByCol[col] || { down_label: "0m", sleep_pct: 0 };
     const headerEl = document.createElement("div");
     headerEl.className = "timeline-col-header";
     headerEl.title = `Select ${col} for editing`;
+    headerEl.style.height = "58px";
+    headerEl.style.minHeight = "58px";
+    headerEl.style.flex = "0 0 58px";
+    headerEl.style.padding = "6px 8px";
+    headerEl.style.borderBottom = isActiveCol
+      ? "2px solid #2563eb"
+      : "1px solid #cbd5e1";
+    headerEl.style.background = isActiveCol ? "#eff6ff" : "#f8fafc";
+    headerEl.style.display = "flex";
+    headerEl.style.flexDirection = "column";
+    headerEl.style.alignItems = "center";
+    headerEl.style.justifyContent = "center";
+    headerEl.style.gap = "3px";
+    headerEl.style.cursor = "pointer";
     headerEl.innerHTML = `
-      <span class="timeline-col-date">${col}</span>
-      <span class="timeline-col-sub">Down: ${st.down_label}</span>
+      <span class="timeline-col-date" style="font-size:0.88rem;font-weight:800;color:${
+        isActiveCol ? "#2563eb" : "#0f172a"
+      };line-height:1.1;">${col}</span>
+      <span class="timeline-col-sub" style="font-size:0.71rem;font-weight:600;color:${
+        isActiveCol ? "#1e40af" : "#475569"
+      };background:${
+      isActiveCol ? "#dbeafe" : "#e2e8f0"
+    };padding:1px 7px;border-radius:10px;white-space:nowrap;">Down: ${
+      st.down_label
+    }</span>
     `;
     headerEl.addEventListener("click", () => {
       state.activeDate = col;
@@ -1552,6 +1711,13 @@ function renderInteractiveTimeline() {
     const bodyEl = document.createElement("div");
     bodyEl.className = "timeline-col-body";
     bodyEl.dataset.col = col;
+    bodyEl.style.position = "relative";
+    bodyEl.style.height = "680px";
+    bodyEl.style.minHeight = "680px";
+    bodyEl.style.flex = "0 0 680px";
+    bodyEl.style.width = "100%";
+    bodyEl.style.overflow = "hidden";
+    bodyEl.style.cursor = "crosshair";
 
     let blocks = state.blocksByCol[col] || [];
     let events = state.eventsByCol[col] || [];
@@ -1576,25 +1742,39 @@ function renderInteractiveTimeline() {
 
     // Render Blocks (Down / Up)
     blocks.forEach((b) => {
+      const isDown = b.state === "down";
       const blockEl = document.createElement("div");
       blockEl.className = `timeline-block ${b.state}`;
+      blockEl.style.position = "absolute";
+      blockEl.style.left = "0";
+      blockEl.style.right = "0";
       blockEl.style.top = `${(b.start_min / 600) * 100}%`;
       blockEl.style.height = `${(b.duration / 600) * 100}%`;
+      blockEl.style.display = "flex";
+      blockEl.style.flexDirection = "column";
+      blockEl.style.alignItems = "center";
+      blockEl.style.justifyContent = "center";
+      blockEl.style.padding = "2px 4px";
+      blockEl.style.overflow = "hidden";
+      blockEl.style.background = isDown ? "#000000" : "#ffffff";
+      blockEl.style.color = isDown ? "#ffffff" : "#000000";
 
       if (b.duration >= 10) {
         const durLbl = document.createElement("span");
         const sizeClass =
           b.duration < 20 ? "tiny" : b.duration < 35 ? "compact" : "";
         durLbl.className = `block-duration-label ${sizeClass}`;
+        durLbl.style.position = "relative";
+        durLbl.style.zIndex = "6";
+        durLbl.style.fontWeight = "800";
+        durLbl.style.fontSize =
+          b.duration < 20 ? "0.62rem" : b.duration < 35 ? "0.7rem" : "0.84rem";
+        durLbl.style.lineHeight = "1.1";
+        durLbl.style.textAlign = "center";
+        durLbl.style.pointerEvents = "none";
+        durLbl.style.color = isDown ? "#ffffff" : "#000000";
         durLbl.textContent = b.label;
         blockEl.appendChild(durLbl);
-
-        if (b.duration >= 50) {
-          const rangeLbl = document.createElement("span");
-          rangeLbl.className = "block-time-sublabel";
-          rangeLbl.textContent = `${b.start_time} – ${b.end_time}`;
-          blockEl.appendChild(rangeLbl);
-        }
       }
 
       bodyEl.appendChild(blockEl);
@@ -1612,7 +1792,18 @@ function renderInteractiveTimeline() {
           state.dragState.col === col &&
           state.dragState.currentMinute === ev.minute;
         handleEl.className = `timeline-handle ${isDraggingThis ? "dragging" : ""}`;
+        handleEl.style.position = "absolute";
+        handleEl.style.left = "0";
+        handleEl.style.right = "0";
+        handleEl.style.height = "18px";
         handleEl.style.top = `${(ev.minute / 600) * 100}%`;
+        handleEl.style.transform = "translateY(-50%)";
+        handleEl.style.zIndex = "10";
+        handleEl.style.cursor = "ns-resize";
+        handleEl.style.touchAction = "none";
+        handleEl.style.display = "flex";
+        handleEl.style.alignItems = "center";
+        handleEl.style.justifyContent = "center";
 
         const pill = document.createElement("span");
         pill.className = "timeline-handle-pill";
@@ -1732,9 +1923,9 @@ window.addEventListener("pointermove", (evt) => {
 
   // Find column body rect for accurate vertical coordinate
   const colBody =
-    els.timelineColumnsTrack.querySelector(
-      `.timeline-col-body[data-col="${CSS.escape(ds.col)}"]`
-    ) || ds.bodyEl;
+    Array.from(
+      els.timelineColumnsTrack.querySelectorAll(".timeline-col-body")
+    ).find((el) => el.dataset.col === ds.col) || ds.bodyEl;
   if (!colBody) return;
 
   const rect = colBody.getBoundingClientRect();
@@ -1792,20 +1983,6 @@ window.addEventListener("pointerup", (evt) => {
     renderInteractiveTimeline();
   }
 });
-
-// Theme Toggle (Modern vs Classic B&W)
-if (els.styleModernBtn && els.styleClassicBtn) {
-  els.styleModernBtn.addEventListener("click", () => {
-    els.styleModernBtn.classList.add("active");
-    els.styleClassicBtn.classList.remove("active");
-    els.interactiveChartBoard.classList.remove("classic-bw");
-  });
-  els.styleClassicBtn.addEventListener("click", () => {
-    els.styleClassicBtn.classList.add("active");
-    els.styleModernBtn.classList.remove("active");
-    els.interactiveChartBoard.classList.add("classic-bw");
-  });
-}
 
 window.addEventListener("resize", () => {
   renderInteractiveTimeline();

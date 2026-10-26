@@ -17,8 +17,6 @@ from urllib.parse import parse_qs, urlparse
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-DEFAULT_CSV_NAME = "time_schedule_10-19_to_10-25.csv"
-ORIGINAL_CSV_PATH = os.path.join(BASE_DIR, DEFAULT_CSV_NAME)
 ACTIVE_CSV_PATH = os.path.join(DATA_DIR, "schedule.csv")
 
 
@@ -194,15 +192,12 @@ def serialize_to_csv(columns, events_by_col):
 
 
 def ensure_data_initialized():
-    """Ensure data/schedule.csv exists, copying from ORIGINAL_CSV_PATH if needed."""
+    """Ensure data/schedule.csv exists."""
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(ACTIVE_CSV_PATH):
-        if os.path.exists(ORIGINAL_CSV_PATH):
-            shutil.copyfile(ORIGINAL_CSV_PATH, ACTIVE_CSV_PATH)
-        else:
-            default_csv = serialize_to_csv(["20-Oct"], {"20-Oct": []})
-            with open(ACTIVE_CSV_PATH, "w", encoding="utf-8") as f:
-                f.write(default_csv)
+        default_csv = serialize_to_csv(["20-Oct"], {"20-Oct": []})
+        with open(ACTIVE_CSV_PATH, "w", encoding="utf-8") as f:
+            f.write(default_csv)
 
 
 def load_schedule():
@@ -393,7 +388,7 @@ def generate_matplotlib_png(columns, blocks_by_col):
         spine.set_linewidth(1.2)
 
     ax.set_title(
-        "Overnight sleep schedule\n[Black = Down, White = Up]",
+        "Overnight sleep tracker\n[Black = Down, White = Up]",
         fontsize=14,
         pad=22,
         fontweight="bold",
@@ -409,14 +404,18 @@ def generate_matplotlib_png(columns, blocks_by_col):
 
 class SleepTrackerHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=STATIC_DIR, **kwargs)
+        super().__init__(*args, directory=BASE_DIR, **kwargs)
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        super().end_headers()
 
     def send_json(self, data, status=200):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -497,8 +496,6 @@ class SleepTrackerHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/reset":
             try:
-                if os.path.exists(ORIGINAL_CSV_PATH):
-                    shutil.copyfile(ORIGINAL_CSV_PATH, ACTIVE_CSV_PATH)
                 payload = load_schedule()
                 return self.send_json(payload)
             except Exception as e:

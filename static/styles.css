@@ -1045,22 +1045,13 @@ body {
 }
 
 .legend-swatch.down {
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  border: 1px solid #0f172a;
+  background: #000000;
+  border: 1px solid #000000;
 }
 
 .legend-swatch.up {
-  background: #f8fafc;
-  border: 1px solid #94a3b8;
-}
-
-.timeline-board.classic-bw .legend-swatch.down {
-  background: #000000;
-}
-
-.timeline-board.classic-bw .legend-swatch.up {
   background: #ffffff;
-  border-color: #000000;
+  border: 1px solid #000000;
 }
 
 .timeline-scroll-hint {
@@ -1087,8 +1078,8 @@ body {
 .timeline-grid-shell {
   position: relative;
   display: flex;
-  min-width: 100%;
-  width: max-content;
+  width: 100%;
+  min-height: 738px;
 }
 
 /* Sticky Left Y-Axis (9:00 PM to 7:00 AM) */
@@ -1097,7 +1088,7 @@ body {
   left: 0;
   z-index: 16;
   width: 76px;
-  flex-shrink: 0;
+  flex: 0 0 76px;
   background: rgba(248, 250, 252, 0.96);
   backdrop-filter: blur(4px);
   border-right: 1px solid #cbd5e1;
@@ -1107,6 +1098,8 @@ body {
 
 .timeline-axis-corner {
   height: 58px;
+  min-height: 58px;
+  flex: 0 0 58px;
   border-bottom: 1px solid #cbd5e1;
   display: flex;
   align-items: center;
@@ -1121,7 +1114,9 @@ body {
 
 .timeline-axis-body {
   position: relative;
-  height: var(--timeline-height, 680px);
+  height: 680px;
+  min-height: 680px;
+  flex: 0 0 680px;
 }
 
 .timeline-axis-tick {
@@ -1162,16 +1157,17 @@ body {
 
 /* Dynamic Columns Track */
 .timeline-columns-track {
-  display: grid;
-  flex: 1;
-  min-width: 0;
+  display: flex;
+  flex: 1 0 auto;
+  min-height: 738px;
 }
 
 .timeline-col {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #cbd5e1;
+  flex: 1 0 var(--col-min-width, 108px);
   min-width: var(--col-min-width, 108px);
+  border-right: 1px solid #cbd5e1;
   position: relative;
   transition: background 0.15s ease;
 }
@@ -1183,6 +1179,8 @@ body {
 /* Column Header */
 .timeline-col-header {
   height: 58px;
+  min-height: 58px;
+  flex: 0 0 58px;
   padding: 6px 8px;
   border-bottom: 1px solid #cbd5e1;
   background: #f8fafc;
@@ -1233,7 +1231,10 @@ body {
 /* Column 600-Minute Body */
 .timeline-col-body {
   position: relative;
-  height: var(--timeline-height, 680px);
+  height: 680px;
+  min-height: 680px;
+  flex: 0 0 680px;
+  width: 100%;
   cursor: crosshair;
   overflow: hidden;
 }
@@ -1253,24 +1254,11 @@ body {
 }
 
 .timeline-block.down {
-  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+  background: #000000;
   color: #ffffff;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .timeline-block.up {
-  background: #ffffff;
-  color: #0f172a;
-}
-
-.timeline-board.classic-bw .timeline-block.down {
-  background: #000000;
-  color: #ffffff;
-  border: none;
-}
-
-.timeline-board.classic-bw .timeline-block.up {
   background: #ffffff;
   color: #000000;
 }
@@ -1280,17 +1268,13 @@ body {
 }
 
 .timeline-block.down:hover {
-  background: linear-gradient(180deg, #1e293b 0%, #27374d 100%);
+  background: #111827;
   box-shadow: inset 0 0 0 1.5px #60a5fa;
 }
 
 .timeline-block.up:hover {
   background: #f8fafc;
   box-shadow: inset 0 0 0 1.5px #93c5fd;
-}
-
-.timeline-board.classic-bw .timeline-block.down:hover {
-  background: #111827;
 }
 
 /* 15-Minute and Hourly Grid Overlay inside each Column */
@@ -1522,6 +1506,7 @@ body {
 
   .timeline-axis-col {
     width: 64px;
+    flex: 0 0 64px;
   }
 
   .timeline-axis-tick {

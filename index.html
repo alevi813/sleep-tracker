@@ -7,9 +7,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Overnight sleep tracker" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Overnight sleep tracker</title>
-  <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="manifest" href="./manifest.json?v=4" />
+  <link rel="stylesheet" href="./styles.css?v=4" />
 </head>
 <body>
   <header class="app-header">
@@ -227,10 +230,6 @@
             <span><strong>Tap / click</strong> any block or time slot to add/edit transitions, or <strong>drag</strong> any transition handle <code>↕</code> in 5-min steps.</span>
           </div>
           <div class="viz-controls">
-            <div class="theme-pill-group" role="group" aria-label="Chart visual style">
-              <button type="button" id="styleModernBtn" class="style-pill-btn active">Modern</button>
-              <button type="button" id="styleClassicBtn" class="style-pill-btn">Classic B&amp;W</button>
-            </div>
             <label class="checkbox-label">
               <input type="checkbox" id="showHoverGuideCheckbox" checked />
               Crosshair &amp; Handles
@@ -238,7 +237,7 @@
           </div>
         </div>
 
-        <div id="interactiveChartBoard" class="timeline-board">
+        <div id="interactiveChartBoard" class="timeline-board classic-bw">
           <div class="timeline-board-header">
             <div class="timeline-board-title-group">
               <h3 class="timeline-board-title">Overnight sleep tracker</h3>
@@ -467,6 +466,6 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=4"></script>
 </body>
 </html>
