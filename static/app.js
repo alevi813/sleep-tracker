@@ -145,7 +145,17 @@ const els = {
   blocksListContainer: document.getElementById("blocksListContainer"),
 
   summaryCardsContainer: document.getElementById("summaryCardsContainer"),
+  styleModernBtn: document.getElementById("styleModernBtn"),
+  styleClassicBtn: document.getElementById("styleClassicBtn"),
   showHoverGuideCheckbox: document.getElementById("showHoverGuideCheckbox"),
+  interactiveChartBoard: document.getElementById("interactiveChartBoard"),
+  timelineScrollHint: document.getElementById("timelineScrollHint"),
+  timelineGridShell: document.getElementById("timelineGridShell"),
+  timelineAxisCol: document.getElementById("timelineAxisCol"),
+  timelineAxisBody: document.getElementById("timelineAxisBody"),
+  axisHoverBadge: document.getElementById("axisHoverBadge"),
+  timelineColumnsTrack: document.getElementById("timelineColumnsTrack"),
+  timelineCrosshairLine: document.getElementById("timelineCrosshairLine"),
   canvasWrapper: document.getElementById("canvasWrapper"),
   scheduleCanvas: document.getElementById("scheduleCanvas"),
   chartPopover: document.getElementById("chartPopover"),
@@ -1303,16 +1313,17 @@ function getChartDimensions() {
 }
 
 function renderChartCanvas(isExport = false, targetCanvas = els.scheduleCanvas) {
+  if (!isExport) {
+    renderInteractiveTimeline();
+    return;
+  }
+
   const dims = getChartDimensions();
   const visibleCols = dims.visibleCols;
-  const dpr = isExport ? 2.5 : window.devicePixelRatio || 2;
+  const dpr = 2.5;
 
   targetCanvas.width = dims.totalWidth * dpr;
   targetCanvas.height = dims.totalHeight * dpr;
-  if (!isExport) {
-    targetCanvas.style.width = `${dims.totalWidth}px`;
-    targetCanvas.style.height = `${dims.totalHeight}px`;
-  }
 
   const ctx = targetCanvas.getContext("2d");
   ctx.save();
@@ -1327,31 +1338,14 @@ function renderChartCanvas(isExport = false, targetCanvas = els.scheduleCanvas) 
   ctx.font =
     "bold 18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif";
   const centerX = dims.plotLeft + dims.plotWidth / 2;
-  ctx.fillText("Overnight sleep schedule", centerX, 16);
+  ctx.fillText("Overnight sleep tracker", centerX, 16);
   ctx.font =
     "bold 15px -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif";
   ctx.fillText("[Black = Down, White = Up]", centerX, 40);
 
   visibleCols.forEach((col, colIdx) => {
     const colX = dims.plotLeft + colIdx * dims.colWidth;
-
-    let blocks = state.blocksByCol[col] || [];
-    if (!isExport && state.dragState && state.dragState.col === col) {
-      const tempEvents = (state.eventsByCol[col] || [])
-        .filter(
-          (e) =>
-            e.minute !== state.dragState.originalMinute &&
-            e.minute !== state.dragState.currentMinute
-        )
-        .concat([
-          {
-            minute: state.dragState.currentMinute,
-            time: minToTime(state.dragState.currentMinute),
-            state: state.dragState.eventState,
-          },
-        ]);
-      blocks = computeBlocksClient(tempEvents);
-    }
+    const blocks = state.blocksByCol[col] || [];
 
     blocks.forEach((b) => {
       const yStart = dims.plotTop + (b.start_min / 600) * dims.plotHeight;
@@ -1408,45 +1402,6 @@ function renderChartCanvas(isExport = false, targetCanvas = els.scheduleCanvas) 
   }
   ctx.restore();
 
-  if (!isExport && els.showHoverGuideCheckbox.checked) {
-    const activeIdx = visibleCols.indexOf(state.activeDate);
-    if (activeIdx !== -1) {
-      const ax = dims.plotLeft + activeIdx * dims.colWidth;
-      ctx.fillStyle = "rgba(37, 99, 235, 0.08)";
-      ctx.fillRect(ax, dims.plotTop - 34, dims.colWidth, 28);
-    }
-
-    if (state.dragState) {
-      const colX = dims.plotLeft + state.dragState.colIdx * dims.colWidth;
-      const y =
-        dims.plotTop + (state.dragState.currentMinute / 600) * dims.plotHeight;
-      ctx.save();
-      ctx.strokeStyle = "#2563eb";
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(colX, y);
-      ctx.lineTo(colX + dims.colWidth, y);
-      ctx.stroke();
-      ctx.restore();
-    } else if (state.hoverInfo) {
-      const { colIdx, minute, nearEvent } = state.hoverInfo;
-      const colX = dims.plotLeft + colIdx * dims.colWidth;
-      const y =
-        dims.plotTop +
-        ((nearEvent ? nearEvent.minute : minute) / 600) * dims.plotHeight;
-
-      ctx.save();
-      ctx.strokeStyle = nearEvent ? "#2563eb" : "rgba(37, 99, 235, 0.65)";
-      ctx.lineWidth = nearEvent ? 2.5 : 1.5;
-      if (!nearEvent) ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.moveTo(colX, y);
-      ctx.lineTo(colX + dims.colWidth, y);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-
   // Outer Chart Border
   ctx.strokeStyle = "#000000";
   ctx.lineWidth = 1.5;
@@ -1467,9 +1422,7 @@ function renderChartCanvas(isExport = false, targetCanvas = els.scheduleCanvas) 
     ctx.moveTo(xCenter, dims.plotTop);
     ctx.lineTo(xCenter, dims.plotTop - 5);
     ctx.stroke();
-
-    ctx.fillStyle =
-      !isExport && col === state.activeDate ? "#1d4ed8" : "#000000";
+    ctx.fillStyle = "#000000";
     ctx.fillText(col, xCenter, dims.plotTop - 9);
   });
 
@@ -1507,185 +1460,355 @@ function renderChartCanvas(isExport = false, targetCanvas = els.scheduleCanvas) 
   ctx.restore();
 }
 
-function getCanvasMouseInfo(evt) {
-  const rect = els.scheduleCanvas.getBoundingClientRect();
-  const dims = getChartDimensions();
-  const scaleX = dims.totalWidth / rect.width;
-  const scaleY = dims.totalHeight / rect.height;
+// ============================================================================
+// Responsive Interactive DOM/CSS Schedule Timeline
+// ============================================================================
 
-  const x = (evt.clientX - rect.left) * scaleX;
-  const y = (evt.clientY - rect.top) * scaleY;
+const HOURLY_AXIS_LABELS = [
+  "9:00 PM",
+  "10:00 PM",
+  "11:00 PM",
+  "12:00 AM",
+  "1:00 AM",
+  "2:00 AM",
+  "3:00 AM",
+  "4:00 AM",
+  "5:00 AM",
+  "6:00 AM",
+  "7:00 AM",
+];
 
-  if (
-    x < dims.plotLeft ||
-    x > dims.plotRight ||
-    y < dims.plotTop - 32 ||
-    y > dims.plotBottom
-  ) {
-    return null;
-  }
-
-  const visibleCols = dims.visibleCols;
-  const colIdx = Math.min(
-    visibleCols.length - 1,
-    Math.max(0, Math.floor((x - dims.plotLeft) / dims.colWidth))
-  );
-  const col = visibleCols[colIdx];
-
-  if (y < dims.plotTop) {
-    return { isHeaderClick: true, colIdx, col, x, y };
-  }
-
-  const rawMinute = ((y - dims.plotTop) / dims.plotHeight) * 600;
-  const snappedMinute = Math.max(
-    0,
-    Math.min(600, Math.round(rawMinute / 5) * 5)
-  );
-
-  const events = state.eventsByCol[col] || [];
-  let nearEvent = null;
-  let minPxDist = Infinity;
-  events.forEach((ev) => {
-    const evY = dims.plotTop + (ev.minute / 600) * dims.plotHeight;
-    const dist = Math.abs(y - evY);
-    if (dist <= 6 && dist < minPxDist) {
-      minPxDist = dist;
-      nearEvent = ev;
-    }
+function renderAxisTicksOnce() {
+  if (!els.timelineAxisBody) return;
+  els.timelineAxisBody.querySelectorAll(".timeline-axis-tick").forEach((el) => el.remove());
+  HOURLY_AXIS_LABELS.forEach((label, idx) => {
+    const tick = document.createElement("div");
+    tick.className = `timeline-axis-tick ${
+      idx === 0 ? "edge-top" : idx === HOURLY_AXIS_LABELS.length - 1 ? "edge-bottom" : ""
+    }`;
+    tick.style.top = `${(idx * 60 * 100) / 600}%`;
+    tick.textContent = label;
+    els.timelineAxisBody.appendChild(tick);
   });
-
-  return {
-    isHeaderClick: false,
-    colIdx,
-    col,
-    minute: snappedMinute,
-    nearEvent,
-    x,
-    y,
-    clientX: evt.clientX,
-    clientY: evt.clientY,
-  };
 }
 
-els.scheduleCanvas.addEventListener("mousemove", (evt) => {
-  const info = getCanvasMouseInfo(evt);
+function buildGridLinesFragment() {
+  const container = document.createElement("div");
+  container.className = "timeline-grid-lines";
+  for (let t = 15; t < 600; t += 15) {
+    const line = document.createElement("div");
+    line.className = `timeline-grid-line ${t % 60 === 0 ? "hourly" : ""}`;
+    line.style.top = `${(t / 600) * 100}%`;
+    container.appendChild(line);
+  }
+  return container;
+}
 
-  if (state.dragState) {
-    const rect = els.scheduleCanvas.getBoundingClientRect();
-    const dims = getChartDimensions();
-    const scaleY = dims.totalHeight / rect.height;
-    const y = (evt.clientY - rect.top) * scaleY;
-    const rawMinute = ((y - dims.plotTop) / dims.plotHeight) * 600;
-    const snapped = Math.max(0, Math.min(600, Math.round(rawMinute / 5) * 5));
-    state.dragState.currentMinute = snapped;
-    renderChartCanvas(false);
+function renderInteractiveTimeline() {
+  if (!els.timelineColumnsTrack) return;
+  renderAxisTicksOnce();
 
-    positionTooltip(
-      evt,
-      `<strong>${state.dragState.col}</strong> · Moving <strong>${state.dragState.eventState.toUpperCase()}</strong> transition to <strong>${minToTime(snapped)}</strong>`
+  const visibleCols = getVisibleColumns();
+  const nCols = Math.max(1, visibleCols.length);
+  const isMobile = window.innerWidth <= 768;
+
+  // Responsive column sizing: never squished on mobile!
+  const minColPx = isMobile ? (nCols <= 3 ? 78 : 98) : 108;
+  els.timelineColumnsTrack.style.setProperty("--col-min-width", `${minColPx}px`);
+  els.timelineColumnsTrack.style.gridTemplateColumns = `repeat(${nCols}, minmax(${minColPx}px, 1fr))`;
+
+  if (els.timelineScrollHint) {
+    els.timelineScrollHint.classList.toggle(
+      "visible-mobile",
+      isMobile && nCols >= 4
     );
-    return;
   }
 
-  if (!info || info.isHeaderClick) {
-    state.hoverInfo = null;
-    els.scheduleCanvas.style.cursor =
-      info && info.isHeaderClick ? "pointer" : "default";
-    els.chartTooltip.classList.add("hidden");
-    renderChartCanvas(false);
-    return;
-  }
+  els.timelineColumnsTrack.innerHTML = "";
 
-  state.hoverInfo = info;
-  els.scheduleCanvas.style.cursor = info.nearEvent ? "ns-resize" : "crosshair";
-  renderChartCanvas(false);
+  visibleCols.forEach((col, colIdx) => {
+    const colEl = document.createElement("div");
+    colEl.className = `timeline-col ${col === state.activeDate ? "active-col" : ""}`;
+    colEl.dataset.col = col;
 
-  if (els.showHoverGuideCheckbox.checked && state.popoverState === null) {
-    const blocks = state.blocksByCol[info.col] || [];
-    const activeBlock = blocks.find(
-      (b) => info.minute >= b.start_min && info.minute <= b.end_min
-    );
-    if (info.nearEvent) {
-      positionTooltip(
-        evt,
-        `<strong>${info.col} @ ${info.nearEvent.time}</strong> (${info.nearEvent.state.toUpperCase()})<br/>Drag up/down to adjust time, or click to edit`
-      );
-    } else if (activeBlock) {
-      positionTooltip(
-        evt,
-        `<strong>${info.col} · ${minToTime(info.minute)}</strong><br/>Block: <strong>${activeBlock.state.toUpperCase()}</strong> (${activeBlock.label}, ${activeBlock.start_time}–${activeBlock.end_time})`
-      );
+    // 1. Column Header (Date + Total Sleep Summary)
+    const st = state.statsByCol[col] || { down_label: "0m", sleep_pct: 0 };
+    const headerEl = document.createElement("div");
+    headerEl.className = "timeline-col-header";
+    headerEl.title = `Select ${col} for editing`;
+    headerEl.innerHTML = `
+      <span class="timeline-col-date">${col}</span>
+      <span class="timeline-col-sub">Down: ${st.down_label}</span>
+    `;
+    headerEl.addEventListener("click", () => {
+      state.activeDate = col;
+      closePopover();
+      syncSmartDefaultsForActiveDate();
+      renderAll();
+    });
+    colEl.appendChild(headerEl);
+
+    // 2. Column 600-Minute Body
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "timeline-col-body";
+    bodyEl.dataset.col = col;
+
+    let blocks = state.blocksByCol[col] || [];
+    let events = state.eventsByCol[col] || [];
+
+    if (state.dragState && state.dragState.col === col) {
+      events = events
+        .filter(
+          (e) =>
+            e.minute !== state.dragState.originalMinute &&
+            e.minute !== state.dragState.currentMinute
+        )
+        .concat([
+          {
+            minute: state.dragState.currentMinute,
+            time: minToTime(state.dragState.currentMinute),
+            state: state.dragState.eventState,
+          },
+        ])
+        .sort((a, b) => a.minute - b.minute);
+      blocks = computeBlocksClient(events);
     }
-  } else {
-    els.chartTooltip.classList.add("hidden");
+
+    // Render Blocks (Down / Up)
+    blocks.forEach((b) => {
+      const blockEl = document.createElement("div");
+      blockEl.className = `timeline-block ${b.state}`;
+      blockEl.style.top = `${(b.start_min / 600) * 100}%`;
+      blockEl.style.height = `${(b.duration / 600) * 100}%`;
+
+      if (b.duration >= 10) {
+        const durLbl = document.createElement("span");
+        const sizeClass =
+          b.duration < 20 ? "tiny" : b.duration < 35 ? "compact" : "";
+        durLbl.className = `block-duration-label ${sizeClass}`;
+        durLbl.textContent = b.label;
+        blockEl.appendChild(durLbl);
+
+        if (b.duration >= 50) {
+          const rangeLbl = document.createElement("span");
+          rangeLbl.className = "block-time-sublabel";
+          rangeLbl.textContent = `${b.start_time} – ${b.end_time}`;
+          blockEl.appendChild(rangeLbl);
+        }
+      }
+
+      bodyEl.appendChild(blockEl);
+    });
+
+    // Render 15-min & Hourly Grid Lines
+    bodyEl.appendChild(buildGridLinesFragment());
+
+    // Render Draggable Transition Handles
+    if (els.showHoverGuideCheckbox.checked) {
+      events.forEach((ev) => {
+        const handleEl = document.createElement("div");
+        const isDraggingThis =
+          state.dragState &&
+          state.dragState.col === col &&
+          state.dragState.currentMinute === ev.minute;
+        handleEl.className = `timeline-handle ${isDraggingThis ? "dragging" : ""}`;
+        handleEl.style.top = `${(ev.minute / 600) * 100}%`;
+
+        const pill = document.createElement("span");
+        pill.className = "timeline-handle-pill";
+        pill.textContent = `↕ ${minToTime(ev.minute)} (${ev.state.toUpperCase()})`;
+        handleEl.appendChild(pill);
+
+        handleEl.addEventListener("pointerdown", (evt) => {
+          evt.stopPropagation();
+          evt.preventDefault();
+          closePopover();
+          state.dragState = {
+            col,
+            colIdx,
+            originalMinute: ev.minute,
+            currentMinute: ev.minute,
+            eventState: ev.state,
+            bodyEl,
+            startY: evt.clientY,
+            hasMoved: false,
+          };
+        });
+
+        handleEl.addEventListener("click", (evt) => {
+          evt.stopPropagation();
+          if (state.dragState && state.dragState.hasMoved) return;
+          openChartPopover({
+            col,
+            minute: ev.minute,
+            nearEvent: ev,
+            clientX: evt.clientX,
+            clientY: evt.clientY,
+          });
+        });
+
+        bodyEl.appendChild(handleEl);
+      });
+    }
+
+    // Hover Crosshair & Rich Tooltip inside Column Body
+    bodyEl.addEventListener("pointermove", (evt) => {
+      if (state.dragState) return;
+      const rect = bodyEl.getBoundingClientRect();
+      const relY = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+      const rawMinute = (relY / rect.height) * 600;
+      const snappedMin = Math.max(0, Math.min(600, Math.round(rawMinute / 5) * 5));
+      const pctTop = (snappedMin / 600) * 100;
+
+      if (els.showHoverGuideCheckbox.checked) {
+        if (els.timelineCrosshairLine) {
+          els.timelineCrosshairLine.style.top = `${58 + (snappedMin / 600) * rect.height}px`;
+          els.timelineCrosshairLine.classList.remove("hidden");
+        }
+        if (els.axisHoverBadge) {
+          els.axisHoverBadge.style.top = `${pctTop}%`;
+          els.axisHoverBadge.textContent = minToTime(snappedMin);
+          els.axisHoverBadge.classList.remove("hidden");
+        }
+
+        if (state.popoverState === null) {
+          const activeBlock = blocks.find(
+            (b) => snappedMin >= b.start_min && snappedMin <= b.end_min
+          );
+          const nearEv = events.find((e) => Math.abs(e.minute - snappedMin) <= 5);
+          if (nearEv) {
+            positionTooltip(
+              evt,
+              `<strong>${col} @ ${nearEv.time}</strong> <span class="tooltip-badge ${nearEv.state}">${nearEv.state.toUpperCase()}</span><br/>Drag handle ↕ to adjust time, or click to edit`
+            );
+          } else if (activeBlock) {
+            const stateTitle = activeBlock.state === "down" ? "DOWN (Asleep)" : "UP (Awake)";
+            positionTooltip(
+              evt,
+              `<strong>${col} · ${minToTime(snappedMin)}</strong> <span class="tooltip-badge ${activeBlock.state}">${stateTitle}</span><br/>Stretch: <strong>${activeBlock.label}</strong> (${activeBlock.start_time} → ${activeBlock.end_time})<br/><span style="opacity:0.75">Click to insert/edit transition here</span>`
+            );
+          }
+        }
+      }
+    });
+
+    bodyEl.addEventListener("pointerleave", () => {
+      if (!state.dragState) {
+        if (els.timelineCrosshairLine) els.timelineCrosshairLine.classList.add("hidden");
+        if (els.axisHoverBadge) els.axisHoverBadge.classList.add("hidden");
+        els.chartTooltip.classList.add("hidden");
+      }
+    });
+
+    bodyEl.addEventListener("click", (evt) => {
+      if (state.dragState) return;
+      const rect = bodyEl.getBoundingClientRect();
+      const relY = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+      const rawMinute = (relY / rect.height) * 600;
+      const snappedMin = Math.max(0, Math.min(600, Math.round(rawMinute / 5) * 5));
+      const existingEv = events.find((e) => Math.abs(e.minute - snappedMin) <= 5);
+
+      openChartPopover({
+        col,
+        minute: existingEv ? existingEv.minute : snappedMin,
+        nearEvent: existingEv || null,
+        clientX: evt.clientX,
+        clientY: evt.clientY,
+      });
+    });
+
+    colEl.appendChild(bodyEl);
+    els.timelineColumnsTrack.appendChild(colEl);
+  });
+}
+
+// Global Pointer Drag Handlers (Mouse + Touch)
+window.addEventListener("pointermove", (evt) => {
+  if (!state.dragState) return;
+  const ds = state.dragState;
+  if (Math.abs(evt.clientY - ds.startY) > 2) {
+    ds.hasMoved = true;
   }
+
+  // Find column body rect for accurate vertical coordinate
+  const colBody =
+    els.timelineColumnsTrack.querySelector(
+      `.timeline-col-body[data-col="${CSS.escape(ds.col)}"]`
+    ) || ds.bodyEl;
+  if (!colBody) return;
+
+  const rect = colBody.getBoundingClientRect();
+  const relY = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+  const rawMinute = (relY / rect.height) * 600;
+  const snapped = Math.max(0, Math.min(600, Math.round(rawMinute / 5) * 5));
+
+  if (snapped !== ds.currentMinute) {
+    ds.currentMinute = snapped;
+    renderInteractiveTimeline();
+  }
+
+  if (els.timelineCrosshairLine) {
+    els.timelineCrosshairLine.style.top = `${58 + (snapped / 600) * rect.height}px`;
+    els.timelineCrosshairLine.classList.remove("hidden");
+  }
+  if (els.axisHoverBadge) {
+    els.axisHoverBadge.style.top = `${(snapped / 600) * 100}%`;
+    els.axisHoverBadge.textContent = minToTime(snapped);
+    els.axisHoverBadge.classList.remove("hidden");
+  }
+
+  positionTooltip(
+    evt,
+    `<strong>${ds.col}</strong> · Moving <strong>${ds.eventState.toUpperCase()}</strong> transition to <strong>${minToTime(snapped)}</strong>`
+  );
 });
 
-els.scheduleCanvas.addEventListener("mouseleave", () => {
-  if (!state.dragState) {
-    state.hoverInfo = null;
-    els.chartTooltip.classList.add("hidden");
-    renderChartCanvas(false);
-  }
-});
-
-els.scheduleCanvas.addEventListener("mousedown", (evt) => {
-  if (evt.button !== 0) return;
-  const info = getCanvasMouseInfo(evt);
-  if (!info) return;
-
-  if (info.isHeaderClick) {
-    state.activeDate = info.col;
-    closePopover();
-    syncSmartDefaultsForActiveDate();
-    renderAll();
-    return;
-  }
-
-  if (info.nearEvent) {
-    state.dragState = {
-      col: info.col,
-      colIdx: info.colIdx,
-      originalMinute: info.nearEvent.minute,
-      currentMinute: info.nearEvent.minute,
-      eventState: info.nearEvent.state,
-      startY: evt.clientY,
-      hasMoved: false,
-    };
-  }
-});
-
-window.addEventListener("mousemove", (evt) => {
-  if (state.dragState && Math.abs(evt.clientY - state.dragState.startY) > 3) {
-    state.dragState.hasMoved = true;
-    closePopover();
-  }
-});
-
-window.addEventListener("mouseup", (evt) => {
+window.addEventListener("pointerup", (evt) => {
   if (!state.dragState) return;
   const ds = state.dragState;
   state.dragState = null;
+
+  if (els.timelineCrosshairLine) els.timelineCrosshairLine.classList.add("hidden");
+  if (els.axisHoverBadge) els.axisHoverBadge.classList.add("hidden");
   els.chartTooltip.classList.add("hidden");
 
   if (ds.hasMoved && ds.currentMinute !== ds.originalMinute) {
     state.activeDate = ds.col;
     updateEventMinute(ds.col, ds.originalMinute, ds.currentMinute);
     showToast(`Moved ${ds.col} transition to ${minToTime(ds.currentMinute)}`);
+  } else if (!ds.hasMoved) {
+    openChartPopover({
+      col: ds.col,
+      minute: ds.originalMinute,
+      nearEvent: {
+        minute: ds.originalMinute,
+        time: minToTime(ds.originalMinute),
+        state: ds.eventState,
+      },
+      clientX: evt.clientX,
+      clientY: evt.clientY,
+    });
   } else {
-    const info = getCanvasMouseInfo(evt);
-    if (info) {
-      openChartPopover(info);
-    }
-    renderChartCanvas(false);
+    renderInteractiveTimeline();
   }
 });
 
-els.scheduleCanvas.addEventListener("click", (evt) => {
-  const info = getCanvasMouseInfo(evt);
-  if (!info || info.isHeaderClick) return;
-  if (info.nearEvent) return;
-  openChartPopover(info);
+// Theme Toggle (Modern vs Classic B&W)
+if (els.styleModernBtn && els.styleClassicBtn) {
+  els.styleModernBtn.addEventListener("click", () => {
+    els.styleModernBtn.classList.add("active");
+    els.styleClassicBtn.classList.remove("active");
+    els.interactiveChartBoard.classList.remove("classic-bw");
+  });
+  els.styleClassicBtn.addEventListener("click", () => {
+    els.styleClassicBtn.classList.add("active");
+    els.styleModernBtn.classList.remove("active");
+    els.interactiveChartBoard.classList.add("classic-bw");
+  });
+}
+
+window.addEventListener("resize", () => {
+  renderInteractiveTimeline();
 });
 
 function positionTooltip(evt, htmlContent) {
@@ -1693,9 +1816,11 @@ function positionTooltip(evt, htmlContent) {
   els.chartTooltip.innerHTML = htmlContent;
   els.chartTooltip.classList.remove("hidden");
 
-  const left =
-    evt.clientX - wrapperRect.left + els.canvasWrapper.scrollLeft + 14;
-  const top = evt.clientY - wrapperRect.top + els.canvasWrapper.scrollTop + 14;
+  const tipWidth = els.chartTooltip.offsetWidth || 220;
+  const rawLeft = evt.clientX - wrapperRect.left + els.canvasWrapper.scrollLeft + 14;
+  const maxLeft = els.canvasWrapper.scrollLeft + wrapperRect.width - tipWidth - 10;
+  const left = Math.max(els.canvasWrapper.scrollLeft + 8, Math.min(maxLeft, rawLeft));
+  const top = Math.max(10, evt.clientY - wrapperRect.top + els.canvasWrapper.scrollTop + 14);
   els.chartTooltip.style.left = `${left}px`;
   els.chartTooltip.style.top = `${top}px`;
 }

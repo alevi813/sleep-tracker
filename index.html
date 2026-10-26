@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#1e293b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Sleep Tracker" />
-  <title>Overnight Sleep Schedule Tracker</title>
+  <meta name="apple-mobile-web-app-title" content="Overnight sleep tracker" />
+  <title>Overnight sleep tracker</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -19,7 +19,7 @@
         <span class="block-up"></span>
       </div>
       <div>
-        <h1>Overnight Sleep Schedule Tracker</h1>
+        <h1>Overnight sleep tracker</h1>
         <p class="subtitle">Track &amp; edit overnight <strong>Down</strong> (sleep) and <strong>Up</strong> (awake) transitions (9:00 PM – 7:00 AM)</p>
       </div>
     </div>
@@ -219,36 +219,78 @@
       <!-- Nightly Summary Metrics Bar -->
       <div id="summaryCardsContainer" class="summary-cards-row"></div>
 
-      <!-- View 1: Downstream Visualization -->
+      <!-- View 1: Downstream Interactive Visualization -->
       <div id="chartViewContainer" class="visualization-card">
         <div class="viz-toolbar">
           <div class="viz-instructions">
-            <span class="tip-badge">Interactive Chart</span>
-            <span><strong>Click</strong> anywhere on a column to add/edit an Up/Down transition, or <strong>drag</strong> any horizontal block border to adjust times in 5-min steps.</span>
+            <span class="tip-badge">Interactive Timeline</span>
+            <span><strong>Tap / click</strong> any block or time slot to add/edit transitions, or <strong>drag</strong> any transition handle <code>↕</code> in 5-min steps.</span>
           </div>
           <div class="viz-controls">
+            <div class="theme-pill-group" role="group" aria-label="Chart visual style">
+              <button type="button" id="styleModernBtn" class="style-pill-btn active">Modern</button>
+              <button type="button" id="styleClassicBtn" class="style-pill-btn">Classic B&amp;W</button>
+            </div>
             <label class="checkbox-label">
               <input type="checkbox" id="showHoverGuideCheckbox" checked />
-              Interactive Crosshair &amp; Drag Handles
+              Crosshair &amp; Handles
             </label>
           </div>
         </div>
 
-        <div class="canvas-scroll-wrapper" id="canvasWrapper">
-          <canvas id="scheduleCanvas"></canvas>
-
-          <!-- Floating Popover for Direct Chart Click Editing -->
-          <div id="chartPopover" class="chart-popover hidden">
-            <div class="popover-header">
-              <strong id="popoverTitle">20-Oct @ 10:30 PM</strong>
-              <button type="button" id="popoverCloseBtn" class="popover-close" aria-label="Close">&times;</button>
+        <div id="interactiveChartBoard" class="timeline-board">
+          <div class="timeline-board-header">
+            <div class="timeline-board-title-group">
+              <h3 class="timeline-board-title">Overnight sleep tracker</h3>
+              <div class="timeline-legend">
+                <span class="legend-item">
+                  <span class="legend-swatch down"></span>
+                  <strong>Down</strong> (Asleep)
+                </span>
+                <span class="legend-item">
+                  <span class="legend-swatch up"></span>
+                  <strong>Up</strong> (Awake)
+                </span>
+              </div>
             </div>
-            <div id="popoverBody" class="popover-body"></div>
+            <span class="timeline-scroll-hint" id="timelineScrollHint">← Swipe horizontally for more nights →</span>
           </div>
 
-          <!-- Floating Hover Tooltip -->
-          <div id="chartTooltip" class="chart-tooltip hidden"></div>
+          <div class="timeline-viewport" id="canvasWrapper">
+            <div class="timeline-grid-shell" id="timelineGridShell">
+              <!-- Sticky Left Time Axis (9:00 PM - 7:00 AM) -->
+              <div class="timeline-axis-col" id="timelineAxisCol">
+                <div class="timeline-axis-corner">Time</div>
+                <div class="timeline-axis-body" id="timelineAxisBody">
+                  <div id="axisHoverBadge" class="axis-hover-badge hidden">10:00 PM</div>
+                </div>
+              </div>
+
+              <!-- Dynamic Night Columns Container -->
+              <div class="timeline-columns-track" id="timelineColumnsTrack">
+                <!-- Night columns rendered dynamically by app.js -->
+              </div>
+
+              <!-- Full-Width Horizontal Crosshair Line -->
+              <div id="timelineCrosshairLine" class="timeline-crosshair-line hidden"></div>
+            </div>
+
+            <!-- Floating Popover for Direct Chart Click/Tap Editing -->
+            <div id="chartPopover" class="chart-popover hidden">
+              <div class="popover-header">
+                <strong id="popoverTitle">20-Oct @ 10:30 PM</strong>
+                <button type="button" id="popoverCloseBtn" class="popover-close" aria-label="Close">&times;</button>
+              </div>
+              <div id="popoverBody" class="popover-body"></div>
+            </div>
+
+            <!-- Floating Rich Hover Tooltip -->
+            <div id="chartTooltip" class="chart-tooltip hidden"></div>
+          </div>
         </div>
+
+        <!-- Offscreen high-DPI canvas used when clicking "Download PNG" -->
+        <canvas id="scheduleCanvas" class="hidden"></canvas>
       </div>
 
       <!-- View 2: 5-Minute CSV Time Grid Editor -->
