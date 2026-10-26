@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1e293b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Sleep Tracker" />
+  <title>Overnight Sleep Schedule Tracker</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">
+        <span class="block-down"></span>
+        <span class="block-up"></span>
+      </div>
+      <div>
+        <h1>Overnight Sleep Schedule Tracker</h1>
+        <p class="subtitle">Track &amp; edit overnight <strong>Down</strong> (sleep) and <strong>Up</strong> (awake) transitions (9:00 PM – 7:00 AM)</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div class="view-tabs" role="tablist">
+        <button id="tabChartBtn" class="tab-btn active" role="tab" aria-selected="true">
+          Schedule Visualization
+        </button>
+        <button id="tabGridBtn" class="tab-btn" role="tab" aria-selected="false">
+          CSV Time Grid (5-min)
+        </button>
+      </div>
+
+      <div class="action-buttons">
+        <button id="cloudSyncBtn" class="btn btn-sync" type="button" title="Configure or unlock cross-device GitHub sync">
+          <span id="cloudSyncDot" class="sync-dot unconfigured"></span>
+          <span id="cloudSyncLabel">Cloud Sync</span>
+        </button>
+        <button id="syncPullNowBtn" class="btn btn-secondary hidden" type="button" title="Pull latest schedule from GitHub now">
+          ↻ Sync
+        </button>
+        <label class="btn btn-secondary" for="csvFileInput" title="Import a schedule CSV file">
+          Import CSV
+          <input type="file" id="csvFileInput" accept=".csv,text/csv" hidden />
+        </label>
+        <button id="exportCsvBtn" class="btn btn-secondary" title="Download schedule as CSV">
+          Export CSV
+        </button>
+        <button id="downloadPngBtn" class="btn btn-primary" title="Download high-resolution PNG chart">
+          Download PNG
+        </button>
+        <button id="resetDataBtn" class="btn btn-ghost" title="Reset to original 19-Oct to 25-Oct CSV data">
+          Reset Data
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-layout">
+    <!-- Left Sidebar: Date Management & Up/Down Editor -->
+    <aside class="editor-panel">
+      <!-- Section 1: Date / Night Selector -->
+      <section class="panel-card">
+        <div class="card-header">
+          <h2>1. Select Night</h2>
+          <button id="addDateModalBtn" class="btn btn-sm btn-outline">+ Add Night</button>
+        </div>
+
+        <div id="datePillsContainer" class="date-pills"></div>
+
+        <!-- Inline Add/Rename Night Form (hidden by default) -->
+        <form id="dateForm" class="inline-form hidden">
+          <input
+            type="text"
+            id="dateNameInput"
+            placeholder="e.g. 26-Oct"
+            maxlength="24"
+            required
+          />
+          <button type="submit" id="dateFormSubmitBtn" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" id="dateFormCancelBtn" class="btn btn-sm btn-ghost">Cancel</button>
+        </form>
+
+        <div class="selected-date-bar">
+          <div>
+            <span class="muted-label">Editing:</span>
+            <strong id="activeDateTitle">20-Oct</strong>
+          </div>
+          <div class="date-manage-btns">
+            <button id="renameDateBtn" class="btn-link" title="Rename this date column">Rename</button>
+            <button id="clearDateBtn" class="btn-link" title="Clear all events for this night">Clear Events</button>
+            <button id="deleteDateBtn" class="btn-link danger" title="Delete this date column">Delete Night</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Add Up/Down Time Entry -->
+      <section class="panel-card">
+        <div class="card-header">
+          <h2>2. Add "Down" / "Up" Time</h2>
+          <div class="entry-mode-toggle">
+            <button type="button" id="modeSingleBtn" class="mode-btn active">Single Event</button>
+            <button type="button" id="modeRangeBtn" class="mode-btn">Down → Up Pair</button>
+          </div>
+        </div>
+
+        <!-- Single Transition Form -->
+        <form id="addSingleEventForm" class="event-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="singleTimeSelect">Time (5-min steps)</label>
+              <select id="singleTimeSelect" class="input-select"></select>
+            </div>
+            <div class="form-group">
+              <label>State Transition</label>
+              <div class="state-selector">
+                <button type="button" id="stateDownBtn" class="state-choice down active" data-state="down">
+                  <span class="dot"></span> Down
+                </button>
+                <button type="button" id="stateUpBtn" class="state-choice up" data-state="up">
+                  <span class="dot"></span> Up
+                </button>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            Add Transition to <span class="active-date- inline-date">20-Oct</span>
+          </button>
+        </form>
+
+        <!-- Range (Down -> Up Pair) Form -->
+        <form id="addRangeEventForm" class="event-form hidden">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="rangeDownTimeSelect">Down Time (Asleep)</label>
+              <select id="rangeDownTimeSelect" class="input-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="rangeUpTimeSelect">Up Time (Awake)</label>
+              <select id="rangeUpTimeSelect" class="input-select"></select>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            Add Down &amp; Up Pair to <span class="inline-date">20-Oct</span>
+          </button>
+        </form>
+      </section>
+
+      <!-- Section 3: Edit Events & Resulting Blocks for Selected Night -->
+      <section class="panel-card flex-grow-card">
+        <div class="card-header">
+          <h2>3. Transitions on <span class="inline-date">20-Oct</span></h2>
+          <span id="eventCountBadge" class="badge">0 events</span>
+        </div>
+        <p class="helper-note">
+          Starts at <strong>9:00 PM</strong> as <strong>Up</strong> unless set to Down at 9:00 PM. Click any state pill to toggle <strong>Down ↔ Up</strong>, or change its time.
+        </p>
+
+        <div id="eventsListContainer" class="events-list"></div>
+
+        <div class="blocks-preview-section">
+          <div class="blocks-preview-header">
+            <h3>Resulting Continuous Blocks (9:00 PM – 7:00 AM)</h3>
+            <span id="nightTotalSleepBadge" class="sleep-summary-pill">Down: 0h</span>
+          </div>
+          <div id="blocksListContainer" class="blocks-list"></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Right Main Area: Visualization & CSV Grid -->
+    <section class="workspace-panel">
+      <!-- Date Range Slider Filter Bar -->
+      <div class="date-filter-card">
+        <div class="date-filter-header">
+          <div class="date-filter-title-group">
+            <span class="date-filter-title">Displayed Date Range</span>
+            <span id="dateRangeBadge" class="date-range-badge">19-Oct → 25-Oct (7 nights)</span>
+          </div>
+          <div class="date-filter-presets">
+            <button type="button" id="presetLast3Btn" class="btn btn-sm btn-ghost">Last 3</button>
+            <button type="button" id="presetLast5Btn" class="btn btn-sm btn-ghost">Last 5</button>
+            <button type="button" id="presetAllDatesBtn" class="btn btn-sm btn-secondary">Show All</button>
+          </div>
+        </div>
+
+        <div class="dual-slider-wrapper">
+          <div class="dual-slider-track-container">
+            <div class="dual-slider-track"></div>
+            <div id="rangeSliderFill" class="dual-slider-fill"></div>
+            <input
+              type="range"
+              id="rangeStartInput"
+              class="dual-range-input"
+              min="0"
+              max="6"
+              step="1"
+              value="0"
+              aria-label="Start date index"
+            />
+            <input
+              type="range"
+              id="rangeEndInput"
+              class="dual-range-input"
+              min="0"
+              max="6"
+              step="1"
+              value="6"
+              aria-label="End date index"
+            />
+          </div>
+          <div id="rangeTicksContainer" class="dual-slider-ticks"></div>
+        </div>
+      </div>
+
+      <!-- Nightly Summary Metrics Bar -->
+      <div id="summaryCardsContainer" class="summary-cards-row"></div>
+
+      <!-- View 1: Downstream Visualization -->
+      <div id="chartViewContainer" class="visualization-card">
+        <div class="viz-toolbar">
+          <div class="viz-instructions">
+            <span class="tip-badge">Interactive Chart</span>
+            <span><strong>Click</strong> anywhere on a column to add/edit an Up/Down transition, or <strong>drag</strong> any horizontal block border to adjust times in 5-min steps.</span>
+          </div>
+          <div class="viz-controls">
+            <label class="checkbox-label">
+              <input type="checkbox" id="showHoverGuideCheckbox" checked />
+              Interactive Crosshair &amp; Drag Handles
+            </label>
+          </div>
+        </div>
+
+        <div class="canvas-scroll-wrapper" id="canvasWrapper">
+          <canvas id="scheduleCanvas"></canvas>
+
+          <!-- Floating Popover for Direct Chart Click Editing -->
+          <div id="chartPopover" class="chart-popover hidden">
+            <div class="popover-header">
+              <strong id="popoverTitle">20-Oct @ 10:30 PM</strong>
+              <button type="button" id="popoverCloseBtn" class="popover-close" aria-label="Close">&times;</button>
+            </div>
+            <div id="popoverBody" class="popover-body"></div>
+          </div>
+
+          <!-- Floating Hover Tooltip -->
+          <div id="chartTooltip" class="chart-tooltip hidden"></div>
+        </div>
+      </div>
+
+      <!-- View 2: 5-Minute CSV Time Grid Editor -->
+      <div id="gridViewContainer" class="grid-card hidden">
+        <div class="grid-toolbar">
+          <div>
+            <h3>5-Minute Schedule Grid</h3>
+            <p class="muted-label">Click any cell to cycle: <code>Empty → down → up → Empty</code></p>
+          </div>
+          <div class="grid-filters">
+            <label class="checkbox-label">
+              <input type="checkbox" id="filterActiveRowsCheckbox" />
+              Show only rows with events
+            </label>
+          </div>
+        </div>
+        <div class="table-scroll-container">
+          <table id="scheduleGridTable" class="schedule-grid-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Cloud Sync & Shared PIN Modal -->
+  <div id="syncModalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="syncModalTitle">Cross-Device GitHub Cloud Sync</h2>
+          <p class="muted-label">Sync your sleep schedule across phone, tablet, and computer via GitHub + Shared PIN</p>
+        </div>
+        <button type="button" id="syncModalCloseBtn" class="popover-close" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button type="button" id="syncTabUnlockBtn" class="modal-tab-btn active">Unlock / Status</button>
+        <button type="button" id="syncTabSetupBtn" class="modal-tab-btn">One-Time Setup / Change PIN</button>
+      </div>
+
+      <!-- Tab 1: Unlock with Shared PIN or View Active Connection -->
+      <div id="syncUnlockSection" class="modal-section">
+        <!-- State A: Locked (Config exists, needs PIN) -->
+        <div id="syncLockedView">
+          <div class="sync-status-banner locked">
+            <strong>🔒 Cloud Sync Locked on This Device</strong>
+            <span id="syncRepoLabel">Connected Repo: Detecting...</span>
+          </div>
+          <form id="pinUnlockForm" class="sync-form">
+            <div class="form-row">
+              <label for="pinUnlockInput">Enter Shared PIN</label>
+              <input
+                type="password"
+                id="pinUnlockInput"
+                placeholder="Enter your shared PIN"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="rememberPinCheckbox" checked />
+              Keep this device unlocked (save session in browser)
+            </label>
+            <div id="pinUnlockError" class="sync-error hidden"></div>
+            <button type="submit" id="pinUnlockSubmitBtn" class="btn btn-primary btn-block">
+              Unlock &amp; Sync Schedule
+            </button>
+          </form>
+        </div>
+
+        <!-- State B: Unlocked & Active -->
+        <div id="syncUnlockedView" class="hidden">
+          <div class="sync-status-banner unlocked">
+            <strong>✅ Live GitHub Sync Active</strong>
+            <span id="syncActiveRepoLabel">Repo: —</span>
+            <span id="syncLastTimeLabel" class="muted-label">Last synced: Just now</span>
+          </div>
+          <div class="sync-actions-grid">
+            <button type="button" id="modalPullBtn" class="btn btn-secondary">
+              ↓ Pull Latest from GitHub
+            </button>
+            <button type="button" id="modalPushBtn" class="btn btn-primary">
+              ↑ Push Current Schedule
+            </button>
+          </div>
+          <div class="sync-footer-actions">
+            <button type="button" id="lockDeviceBtn" class="btn-link danger">
+              Lock This Device (Forget Unlocked Session)
+            </button>
+          </div>
+        </div>
+
+        <!-- State C: Not Configured Yet -->
+        <div id="syncEmptyView" class="hidden">
+          <div class="sync-status-banner unconfigured">
+            <strong>☁️ Cloud Sync Not Configured Yet</strong>
+            <span>Set up your GitHub repository and Shared PIN in the <strong>One-Time Setup</strong> tab to sync across devices.</span>
+          </div>
+          <button type="button" id="goToSetupBtn" class="btn btn-primary btn-block">
+            Configure GitHub Sync &amp; Shared PIN →
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 2: One-Time Setup (Encrypt Fine-Grained Token with Shared PIN) -->
+      <div id="syncSetupSection" class="modal-section hidden">
+        <div class="setup-guide-box">
+          <strong>How 100% Free GitHub Sync Works:</strong>
+          <ol>
+            <li>Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-Grained Personal Access Token</a> scoped <em>only</em> to this repository with <strong>Contents: Read &amp; Write</strong> permission.</li>
+            <li>Enter the token and choose a <strong>Shared PIN</strong> below.</li>
+            <li>Your browser encrypts the token with your PIN (AES-256-GCM) and commits <code>data/sync-config.json</code> to your repo. On any phone or laptop, you only ever need the <strong>Shared PIN</strong>!</li>
+          </ol>
+        </div>
+
+        <form id="syncSetupForm" class="sync-form">
+          <div class="form-row-split">
+            <div class="form-row">
+              <label for="setupRepoInput">GitHub Repo (<code>owner/repo</code>)</label>
+              <input
+                type="text"
+                id="setupRepoInput"
+                value="alevi813/sleep-tracker"
+                placeholder="alevi813/sleep-tracker"
+                required
+              />
+            </div>
+            <div class="form-row" style="max-width: 130px;">
+              <label for="setupBranchInput">Branch</label>
+              <input
+                type="text"
+                id="setupBranchInput"
+                value="main"
+                placeholder="main"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label for="setupTokenInput">GitHub Fine-Grained Token (Read/Write Contents)</label>
+            <input
+              type="password"
+              id="setupTokenInput"
+              placeholder="github_pat_..."
+              autocomplete="off"
+              required
+            />
+          </div>
+
+          <div class="form-row">
+            <label for="setupPinInput">Choose Shared PIN (used to unlock on phones/laptops)</label>
+            <input
+              type="password"
+              id="setupPinInput"
+              placeholder="e.g. 4–8 digit PIN or passphrase"
+              autocomplete="new-password"
+              minlength="3"
+              required
+            />
+          </div>
+
+          <div id="setupStatusMsg" class="sync-error hidden"></div>
+
+          <button type="submit" id="setupSubmitBtn" class="btn btn-primary btn-block">
+            Encrypt with PIN &amp; Save to GitHub Repo
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

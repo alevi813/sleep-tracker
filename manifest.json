@@ -1,0 +1,9 @@
+{
+  "name": "Overnight Sleep Schedule Tracker",
+  "short_name": "Sleep Tracker",
+  "description": "Track and visualize overnight Down (sleep) and Up (awake) transitions (9:00 PM - 7:00 AM)",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a"
+}
