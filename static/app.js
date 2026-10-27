@@ -504,6 +504,7 @@ async function githubGetFile(owner, repo, path, branch = "main", token = null) {
   )}&_t=${Date.now()}`;
   const headers = {
     Accept: "application/vnd.github+json",
+    "If-None-Match": "",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -702,6 +703,8 @@ async function pullScheduleFromGitHub(silent = false) {
             JSON.stringify({
               columns: parsed.columns,
               events_by_col: parsed.events_by_col,
+              updated_at: Date.now(),
+              pending_sync: false,
             })
           );
         } catch (_) {}
@@ -742,6 +745,17 @@ async function pushScheduleToGitHub(toastOnSuccess = false) {
       gs.csvSha
     );
     if (newSha) gs.csvSha = newSha;
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          columns: state.columns,
+          events_by_col: state.eventsByCol,
+          updated_at: Date.now(),
+          pending_sync: false,
+        })
+      );
+    } catch (_) {}
     gs.status = "synced";
     gs.lastSyncedAt = new Date();
     updateSyncUI();
@@ -775,11 +789,15 @@ async function fetchSchedule() {
   populateTimeSelects();
 
   // Render initial/cached schedule immediately on load (0ms latency) before awaiting network
+  let hasLocalSaved = false;
+  let hasPendingSync = false;
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && Array.isArray(parsed.columns) && parsed.columns.length > 0) {
+        hasLocalSaved = true;
+        hasPendingSync = Boolean(parsed.pending_sync);
         applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
       }
     }
@@ -821,6 +839,10 @@ async function fetchSchedule() {
   } catch (_) {}
 
   if (state.githubSync.unlocked) {
+    if (hasLocalSaved && hasPendingSync) {
+      const pushed = await pushScheduleToGitHub(false);
+      if (pushed) return;
+    }
     const ok = await pullScheduleFromGitHub(true);
     if (ok) return;
   } else if (state.githubSync.config) {
@@ -839,8 +861,19 @@ async function fetchSchedule() {
     ) {
       const res = await fetch("/api/schedule");
       if (res.ok) {
-        const data = await res.json();
         state.backendAvailable = true;
+        if (hasLocalSaved && hasPendingSync) {
+          await fetch("/api/schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              columns: state.columns,
+              events_by_col: state.eventsByCol,
+            }),
+          });
+          return;
+        }
+        const data = await res.json();
         applyScheduleData(data);
         return;
       }
@@ -849,7 +882,12 @@ async function fetchSchedule() {
     state.backendAvailable = false;
   }
 
-  // 4. Try reading ./data/schedule.csv directly (e.g., on GitHub Pages before PIN unlock)
+  // 4. If user already has saved edits in localStorage, keep them! Do not overwrite with static ./data/schedule.csv
+  if (hasLocalSaved) {
+    return;
+  }
+
+  // 5. First-time load with no localStorage: try reading ./data/schedule.csv
   try {
     if (window.location.protocol.startsWith("http")) {
       const csvRes = await fetch(`./data/schedule.csv?_t=${Date.now()}`, {
@@ -862,18 +900,6 @@ async function fetchSchedule() {
           applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
           return;
         }
-      }
-    }
-  } catch (_) {}
-
-  // 5. Fallback to localStorage or INITIAL_CSV_DATA
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed && Array.isArray(parsed.columns) && parsed.columns.length > 0) {
-        applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
-        return;
       }
     }
   } catch (_) {}
@@ -891,6 +917,8 @@ async function saveScheduleToServer(toastMsg = null) {
       JSON.stringify({
         columns: state.columns,
         events_by_col: state.eventsByCol,
+        updated_at: Date.now(),
+        pending_sync: true,
       })
     );
   } catch (_) {}
@@ -903,16 +931,16 @@ async function saveScheduleToServer(toastMsg = null) {
   } else if (state.githubSync.config) {
     showToast(
       toastMsg
-        ? `${toastMsg} · 🔒 Unlock PIN to sync to GitHub`
-        : "🔒 Unlock PIN to sync changes to GitHub"
+        ? `${toastMsg} (Saved locally · 🔒 Unlock PIN to sync across devices)`
+        : "Saved locally · 🔒 Unlock PIN to sync across devices"
     );
   } else if (toastMsg) {
-    showToast(toastMsg);
+    showToast(`${toastMsg} (Saved in browser)`);
   }
 
   if (state.backendAvailable) {
     try {
-      await fetch("/api/schedule", {
+      const res = await fetch("/api/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -920,6 +948,19 @@ async function saveScheduleToServer(toastMsg = null) {
           events_by_col: state.eventsByCol,
         }),
       });
+      if (res.ok && !state.githubSync.unlocked) {
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+              columns: state.columns,
+              events_by_col: state.eventsByCol,
+              updated_at: Date.now(),
+              pending_sync: false,
+            })
+          );
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 }
@@ -2595,7 +2636,18 @@ if (els.pinUnlockForm) {
       }
 
       els.pinUnlockInput.value = "";
-      await pullScheduleFromGitHub(false);
+      let hasPendingLocal = false;
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && JSON.parse(saved).pending_sync) {
+          hasPendingLocal = true;
+        }
+      } catch (_) {}
+      if (hasPendingLocal) {
+        await pushScheduleToGitHub(true);
+      } else {
+        await pullScheduleFromGitHub(false);
+      }
       updateSyncUI();
       closeSyncModal();
     } catch (_) {
