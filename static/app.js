@@ -4,41 +4,48 @@
  * browser usage (via localStorage + embedded initial CSV data).
  */
 
-const INITIAL_CSV_DATA = `Time,19-Oct,20-Oct,21-Oct,22-Oct,23-Oct,24-Oct,25-Oct
-9:00 PM,,down,,,,,
-9:15 PM,,,,,down,,
-9:20 PM,down,,,,,,
-9:40 PM,,,,down,,,
-9:45 PM,,,down,,,,
-10:00 PM,,,,,up,,
-10:40 PM,,,,,,down,
-10:55 PM,,,,,,,down
-11:00 PM,,,,,down,,
-11:40 PM,,up,,,,,
-11:45 PM,up,,,,,,
-12:30 AM,down,,,,,,
-12:50 AM,,down,,,,,
-1:00 AM,,,up,,,,
-1:45 AM,,,,up,,,
-2:15 AM,,,down,,,,
-2:45 AM,,,,,,up,
-2:50 AM,,,,,up,,
-3:00 AM,up,,,,,,
-3:20 AM,,,,,,down,
-3:25 AM,,,,down,,,
-3:40 AM,,up,,,,,
-4:00 AM,,,,,down,,
-4:10 AM,down,,,,,,
-4:30 AM,,down,,,,,
-4:45 AM,,,up,,,,
-5:30 AM,up,,,,,,
-5:45 AM,,,down,up,,,
-6:15 AM,,,,,,up,
-6:30 AM,,up,,,up,,
-6:50 AM,down,,,,,,
-7:00 AM,,,,up,,,`;
+const INITIAL_CSV_DATA = `Time,19-Oct,20-Oct,21-Oct,22-Oct,23-Oct,24-Oct,25-Oct,26-Oct,27-Oct
+9:00 PM,,down,,,,,,,
+9:10 PM,,,,,,,,down,
+9:15 PM,,,,,down,,,,down
+9:20 PM,down,,,,,,,,
+9:40 PM,,,,down,,,,,up
+9:45 PM,,,down,,,,,,
+10:00 PM,,,,,up,,,up,
+10:40 PM,,,,,,down,,,down
+10:55 PM,,,,,,,down,,
+11:00 PM,,,,,down,,,,
+11:35 PM,,,,,,,,down,
+11:40 PM,,up,,,,,,,
+11:45 PM,up,,,,,,,,up
+12:05 AM,,,,,,,,,down
+12:30 AM,down,,,,,,,,
+12:50 AM,,down,,,,,,,
+1:00 AM,,,up,,,,,,
+1:20 AM,,,,,,,up,,
+1:45 AM,,,,up,,,,,
+2:00 AM,,,,,,,down,,
+2:15 AM,,,down,,,,,,
+2:45 AM,,,,,,up,,,
+2:50 AM,,,,,up,,,,
+3:00 AM,up,,,,,,,,
+3:20 AM,,,,,,down,,,
+3:25 AM,,,,down,,,,,
+3:35 AM,,,,,,,,up,
+3:40 AM,,up,,,,,,,
+4:00 AM,,,,,down,,,,
+4:10 AM,down,,,,,,,,
+4:15 AM,,,,,,,up,,
+4:30 AM,,down,,,,,,down,
+4:45 AM,,,up,,,,down,,
+5:30 AM,up,,,,,,,,
+5:45 AM,,,down,up,,,,,
+6:15 AM,,,,,,up,,,
+6:30 AM,,up,,,up,,,,
+6:50 AM,down,,,,,,,,
+7:00 AM,,,,up,,,,,`;
 
-const STORAGE_KEY = "sleep_schedule_tracker_v2";
+const STORAGE_KEY = "sleep_schedule_tracker_v3";
 const SYNC_CONFIG_KEY = "sleep_tracker_sync_config_v1";
 const SYNC_SESSION_KEY = "sleep_tracker_sync_session_v1";
 
@@ -73,12 +80,16 @@ const state = {
   rangeStartIdx: 0,
   rangeEndIdx: 0,
   rangeInitialized: false,
+  userAdjustedRange: false,
   selectedSingleState: "down",
   dateFormMode: null, // 'add' | 'rename' | null
   hoverInfo: null,
   dragState: null,
   popoverState: null,
   backendAvailable: false,
+  dirtyColumns: new Set(),
+  deletedColumns: new Set(),
+  fullReplacePending: false,
   githubSync: {
     config: null, // { version, owner, repo, branch, salt, iv, ciphertext }
     unlocked: false,
@@ -91,6 +102,7 @@ const state = {
     lastSyncedAt: null,
     pushTimer: null,
     isPushing: false,
+    pushQueued: false,
   },
 };
 
@@ -116,6 +128,7 @@ const els = {
   dateRangeBadge: document.getElementById("dateRangeBadge"),
   presetLast3Btn: document.getElementById("presetLast3Btn"),
   presetLast5Btn: document.getElementById("presetLast5Btn"),
+  presetLast7Btn: document.getElementById("presetLast7Btn"),
   presetAllDatesBtn: document.getElementById("presetAllDatesBtn"),
   rangeSliderFill: document.getElementById("rangeSliderFill"),
   rangeStartInput: document.getElementById("rangeStartInput"),
@@ -678,6 +691,77 @@ async function discoverSyncConfig() {
   return null;
 }
 
+function hasPendingLocalEdits() {
+  return (
+    state.dirtyColumns.size > 0 ||
+    state.deletedColumns.size > 0 ||
+    state.fullReplacePending
+  );
+}
+
+function saveLocalState(pendingSync) {
+  if (!pendingSync) {
+    state.dirtyColumns.clear();
+    state.deletedColumns.clear();
+    state.fullReplacePending = false;
+  }
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        columns: state.columns,
+        events_by_col: state.eventsByCol,
+        updated_at: Date.now(),
+        pending_sync: Boolean(pendingSync),
+        dirty_columns: Array.from(state.dirtyColumns),
+        deleted_columns: Array.from(state.deletedColumns),
+        full_replace_pending: Boolean(state.fullReplacePending),
+      })
+    );
+  } catch (_) {}
+}
+
+function mergeRemoteWithLocalEdits(remoteParsed) {
+  if (
+    !remoteParsed ||
+    !Array.isArray(remoteParsed.columns) ||
+    remoteParsed.columns.length === 0
+  ) {
+    return {
+      columns: [...state.columns],
+      events_by_col: { ...state.eventsByCol },
+    };
+  }
+  if (state.fullReplacePending) {
+    return {
+      columns: [...state.columns],
+      events_by_col: { ...state.eventsByCol },
+    };
+  }
+
+  const mergedColumns = remoteParsed.columns.filter(
+    (col) => !state.deletedColumns.has(col)
+  );
+  const mergedEvents = {};
+  mergedColumns.forEach((col) => {
+    mergedEvents[col] = remoteParsed.events_by_col[col] || [];
+  });
+
+  state.columns.forEach((col) => {
+    if (state.dirtyColumns.has(col) && !state.deletedColumns.has(col)) {
+      if (!mergedColumns.includes(col)) {
+        mergedColumns.push(col);
+      }
+      mergedEvents[col] = state.eventsByCol[col] || [];
+    }
+  });
+
+  return {
+    columns: mergedColumns,
+    events_by_col: mergedEvents,
+  };
+}
+
 async function pullScheduleFromGitHub(silent = false) {
   const gs = state.githubSync;
   if (!gs.unlocked || !gs.owner || !gs.repo || !gs.token) return false;
@@ -697,18 +781,17 @@ async function pullScheduleFromGitHub(silent = false) {
       gs.csvSha = file.sha;
       const parsed = parseCsvClient(file.text);
       if (parsed.columns && parsed.columns.length > 0) {
-        try {
-          localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({
-              columns: parsed.columns,
-              events_by_col: parsed.events_by_col,
-              updated_at: Date.now(),
-              pending_sync: false,
-            })
-          );
-        } catch (_) {}
+        if (hasPendingLocalEdits()) {
+          const merged = mergeRemoteWithLocalEdits(parsed);
+          state.columns = merged.columns;
+          state.eventsByCol = merged.events_by_col;
+          saveLocalState(true);
+          applyScheduleData(buildPayloadClient(state.columns, state.eventsByCol));
+          await pushScheduleToGitHub(!silent);
+          return true;
+        }
         applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
+        saveLocalState(false);
       }
     }
     gs.status = "synced";
@@ -728,34 +811,106 @@ async function pushScheduleToGitHub(toastOnSuccess = false) {
   const gs = state.githubSync;
   if (!gs.unlocked || !gs.owner || !gs.repo || !gs.token) return false;
 
+  if (gs.isPushing) {
+    gs.pushQueued = true;
+    return true;
+  }
+
   gs.isPushing = true;
   gs.status = "syncing";
   updateSyncUI();
 
   try {
-    const csvText = serializeCsvClient(state.columns, state.eventsByCol);
-    const newSha = await githubPutFile(
-      gs.owner,
-      gs.repo,
-      "data/schedule.csv",
-      gs.branch || "main",
-      gs.token,
-      csvText,
-      `Update sleep schedule (${state.activeDate || "app"})`,
-      gs.csvSha
-    );
-    if (newSha) gs.csvSha = newSha;
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          columns: state.columns,
-          events_by_col: state.eventsByCol,
-          updated_at: Date.now(),
-          pending_sync: false,
-        })
+    const branch = gs.branch || "main";
+
+    // Always ensure we have pulled and merged the latest remote schedule before pushing
+    if (!gs.csvSha) {
+      const existing = await githubGetFile(
+        gs.owner,
+        gs.repo,
+        "data/schedule.csv",
+        branch,
+        gs.token
       );
-    } catch (_) {}
+      if (existing && existing.text) {
+        gs.csvSha = existing.sha;
+        const remoteParsed = parseCsvClient(existing.text);
+        const merged = mergeRemoteWithLocalEdits(remoteParsed);
+        state.columns = merged.columns;
+        state.eventsByCol = merged.events_by_col;
+        applyScheduleData(buildPayloadClient(state.columns, state.eventsByCol));
+      }
+    }
+
+    const pushedDirty = new Set(state.dirtyColumns);
+    const pushedDeleted = new Set(state.deletedColumns);
+    const pushedFullReplace = state.fullReplacePending;
+
+    const url = `https://api.github.com/repos/${encodeURIComponent(
+      gs.owner
+    )}/${encodeURIComponent(gs.repo)}/contents/data/schedule.csv`;
+
+    const attemptPut = async (shaToUse, contentText) => {
+      const body = {
+        message: `Update sleep schedule (${state.activeDate || "app"})`,
+        content: utf8ToBase64(contentText),
+        branch,
+      };
+      if (shaToUse) body.sha = shaToUse;
+      return fetch(url, {
+        method: "PUT",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${gs.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    };
+
+    let csvText = serializeCsvClient(state.columns, state.eventsByCol);
+    let res = await attemptPut(gs.csvSha, csvText);
+
+    if (res.status === 409 || res.status === 422) {
+      // Another device pushed newer changes to GitHub; pull and merge before retrying!
+      const latest = await githubGetFile(
+        gs.owner,
+        gs.repo,
+        "data/schedule.csv",
+        branch,
+        gs.token
+      );
+      if (latest && latest.text) {
+        gs.csvSha = latest.sha;
+        const remoteParsed = parseCsvClient(latest.text);
+        const merged = mergeRemoteWithLocalEdits(remoteParsed);
+        state.columns = merged.columns;
+        state.eventsByCol = merged.events_by_col;
+        applyScheduleData(buildPayloadClient(state.columns, state.eventsByCol));
+        csvText = serializeCsvClient(state.columns, state.eventsByCol);
+      }
+      res = await attemptPut(latest ? latest.sha : null, csvText);
+    }
+
+    if (!res.ok) {
+      let errText = `${res.status} ${res.statusText}`;
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.message) errText = errJson.message;
+      } catch (_) {}
+      throw new Error(errText);
+    }
+
+    const data = await res.json();
+    if (data && data.content && data.content.sha) {
+      gs.csvSha = data.content.sha;
+    }
+
+    pushedDirty.forEach((c) => state.dirtyColumns.delete(c));
+    pushedDeleted.forEach((c) => state.deletedColumns.delete(c));
+    if (pushedFullReplace) state.fullReplacePending = false;
+    saveLocalState(hasPendingLocalEdits());
+
     gs.status = "synced";
     gs.lastSyncedAt = new Date();
     updateSyncUI();
@@ -770,6 +925,10 @@ async function pushScheduleToGitHub(toastOnSuccess = false) {
     return false;
   } finally {
     gs.isPushing = false;
+    if (gs.pushQueued) {
+      gs.pushQueued = false;
+      pushScheduleToGitHub(false);
+    }
   }
 }
 
@@ -790,14 +949,19 @@ async function fetchSchedule() {
 
   // Render initial/cached schedule immediately on load (0ms latency) before awaiting network
   let hasLocalSaved = false;
-  let hasPendingSync = false;
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && Array.isArray(parsed.columns) && parsed.columns.length > 0) {
         hasLocalSaved = true;
-        hasPendingSync = Boolean(parsed.pending_sync);
+        if (Array.isArray(parsed.dirty_columns)) {
+          parsed.dirty_columns.forEach((c) => state.dirtyColumns.add(c));
+        }
+        if (Array.isArray(parsed.deleted_columns)) {
+          parsed.deleted_columns.forEach((c) => state.deletedColumns.add(c));
+        }
+        state.fullReplacePending = Boolean(parsed.full_replace_pending);
         applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
       }
     }
@@ -839,10 +1003,6 @@ async function fetchSchedule() {
   } catch (_) {}
 
   if (state.githubSync.unlocked) {
-    if (hasLocalSaved && hasPendingSync) {
-      const pushed = await pushScheduleToGitHub(false);
-      if (pushed) return;
-    }
     const ok = await pullScheduleFromGitHub(true);
     if (ok) return;
   } else if (state.githubSync.config) {
@@ -862,8 +1022,12 @@ async function fetchSchedule() {
       const res = await fetch("/api/schedule");
       if (res.ok) {
         state.backendAvailable = true;
-        if (hasLocalSaved && hasPendingSync) {
-          await fetch("/api/schedule", {
+        const data = await res.json();
+        if (hasLocalSaved && hasPendingLocalEdits()) {
+          const merged = mergeRemoteWithLocalEdits(data);
+          state.columns = merged.columns;
+          state.eventsByCol = merged.events_by_col;
+          const postRes = await fetch("/api/schedule", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -871,10 +1035,15 @@ async function fetchSchedule() {
               events_by_col: state.eventsByCol,
             }),
           });
-          return;
+          if (postRes.ok) {
+            const savedData = await postRes.json();
+            applyScheduleData(savedData);
+            saveLocalState(false);
+            return;
+          }
         }
-        const data = await res.json();
         applyScheduleData(data);
+        saveLocalState(false);
         return;
       }
     }
@@ -882,12 +1051,7 @@ async function fetchSchedule() {
     state.backendAvailable = false;
   }
 
-  // 4. If user already has saved edits in localStorage, keep them! Do not overwrite with static ./data/schedule.csv
-  if (hasLocalSaved) {
-    return;
-  }
-
-  // 5. First-time load with no localStorage: try reading ./data/schedule.csv
+  // 4. Try reading ./data/schedule.csv and merging any local un-synced edits
   try {
     if (window.location.protocol.startsWith("http")) {
       const csvRes = await fetch(`./data/schedule.csv?_t=${Date.now()}`, {
@@ -897,12 +1061,25 @@ async function fetchSchedule() {
         const csvText = await csvRes.text();
         const parsed = parseCsvClient(csvText);
         if (parsed.columns && parsed.columns.length > 0) {
-          applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
-          return;
+          if (hasLocalSaved && hasPendingLocalEdits()) {
+            const merged = mergeRemoteWithLocalEdits(parsed);
+            state.columns = merged.columns;
+            state.eventsByCol = merged.events_by_col;
+            applyScheduleData(buildPayloadClient(state.columns, state.eventsByCol));
+            return;
+          }
+          if (!hasLocalSaved || parsed.columns.length >= state.columns.length) {
+            applyScheduleData(buildPayloadClient(parsed.columns, parsed.events_by_col));
+            return;
+          }
         }
       }
     }
   } catch (_) {}
+
+  if (hasLocalSaved) {
+    return;
+  }
 
   const initial = parseCsvClient(INITIAL_CSV_DATA);
   applyScheduleData(buildPayloadClient(initial.columns, initial.events_by_col));
@@ -911,17 +1088,7 @@ async function fetchSchedule() {
 async function saveScheduleToServer(toastMsg = null) {
   // Always update local state immediately for zero-latency UI
   const localPayload = buildPayloadClient(state.columns, state.eventsByCol);
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        columns: state.columns,
-        events_by_col: state.eventsByCol,
-        updated_at: Date.now(),
-        pending_sync: true,
-      })
-    );
-  } catch (_) {}
+  saveLocalState(true);
 
   applyScheduleData(localPayload);
 
@@ -949,17 +1116,7 @@ async function saveScheduleToServer(toastMsg = null) {
         }),
       });
       if (res.ok && !state.githubSync.unlocked) {
-        try {
-          localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({
-              columns: state.columns,
-              events_by_col: state.eventsByCol,
-              updated_at: Date.now(),
-              pending_sync: false,
-            })
-          );
-        } catch (_) {}
+        saveLocalState(false);
       }
     } catch (_) {}
   }
@@ -983,14 +1140,16 @@ function applyScheduleData(data) {
   }
 
   const maxIdx = Math.max(0, state.columns.length - 1);
-  if (!state.rangeInitialized) {
-    state.rangeStartIdx = 0;
+  if (!state.rangeInitialized || !state.userAdjustedRange) {
+    state.rangeStartIdx = Math.max(0, maxIdx - 6);
     state.rangeEndIdx = maxIdx;
     state.rangeInitialized = true;
   } else {
-    // If columns grew and rangeEndIdx was at the previous end, extend to include new column
+    // If columns grew and rangeEndIdx was at the previous end, shift window to include new column
     if (state.columns.length > prevLen && state.rangeEndIdx === Math.max(0, prevLen - 1)) {
+      const span = state.rangeEndIdx - state.rangeStartIdx;
       state.rangeEndIdx = maxIdx;
+      state.rangeStartIdx = Math.max(0, maxIdx - span);
     } else {
       state.rangeStartIdx = Math.min(state.rangeStartIdx, maxIdx);
       state.rangeEndIdx = Math.max(state.rangeStartIdx, Math.min(state.rangeEndIdx, maxIdx));
@@ -1096,6 +1255,7 @@ function renderDateRangeSlider() {
     tickBtn.textContent = col;
     tickBtn.title = "Click to adjust range endpoint · Double-click to solo this date";
     tickBtn.addEventListener("click", () => {
+      state.userAdjustedRange = true;
       const distStart = Math.abs(idx - state.rangeStartIdx);
       const distEnd = Math.abs(idx - state.rangeEndIdx);
       if (idx < state.rangeStartIdx || (distStart <= distEnd && idx <= state.rangeEndIdx)) {
@@ -1109,6 +1269,7 @@ function renderDateRangeSlider() {
       renderGridTable();
     });
     tickBtn.addEventListener("dblclick", () => {
+      state.userAdjustedRange = true;
       state.rangeStartIdx = idx;
       state.rangeEndIdx = idx;
       state.activeDate = col;
@@ -1130,8 +1291,14 @@ function renderDatePills() {
     btn.addEventListener("click", () => {
       state.activeDate = col;
       // Ensure selected night is within visible slider range
-      if (idx < state.rangeStartIdx) state.rangeStartIdx = idx;
-      if (idx > state.rangeEndIdx) state.rangeEndIdx = idx;
+      if (idx < state.rangeStartIdx) {
+        state.rangeStartIdx = idx;
+        state.userAdjustedRange = true;
+      }
+      if (idx > state.rangeEndIdx) {
+        state.rangeEndIdx = idx;
+        state.userAdjustedRange = true;
+      }
       closePopover();
       syncSmartDefaultsForActiveDate();
       renderAll();
@@ -1292,6 +1459,12 @@ function renderSummaryCards() {
   });
 }
 
+function markColumnDirty(col) {
+  if (!col) return;
+  state.dirtyColumns.add(col);
+  state.deletedColumns.delete(col);
+}
+
 function upsertEvent(col, minute, evState, toastMsg = null) {
   if (!state.eventsByCol[col]) state.eventsByCol[col] = [];
   const list = state.eventsByCol[col].filter((e) => e.minute !== minute);
@@ -1302,6 +1475,7 @@ function upsertEvent(col, minute, evState, toastMsg = null) {
   });
   list.sort((a, b) => a.minute - b.minute);
   state.eventsByCol[col] = list;
+  markColumnDirty(col);
   saveScheduleToServer(toastMsg);
 }
 
@@ -1320,6 +1494,7 @@ function updateEventMinute(col, oldMinute, newMinute) {
   });
   filtered.sort((a, b) => a.minute - b.minute);
   state.eventsByCol[col] = filtered;
+  markColumnDirty(col);
   saveScheduleToServer();
 }
 
@@ -1328,6 +1503,7 @@ function toggleEventState(col, minute) {
   const target = list.find((e) => e.minute === minute);
   if (!target) return;
   target.state = target.state === "down" ? "up" : "down";
+  markColumnDirty(col);
   saveScheduleToServer(
     `Switched ${col} @ ${target.time} to ${target.state.toUpperCase()}`
   );
@@ -1337,6 +1513,7 @@ function deleteEvent(col, minute) {
   const list = state.eventsByCol[col] || [];
   const target = list.find((e) => e.minute === minute);
   state.eventsByCol[col] = list.filter((e) => e.minute !== minute);
+  markColumnDirty(col);
   saveScheduleToServer(
     target ? `Removed ${target.time} transition on ${col}` : null
   );
@@ -2233,6 +2410,7 @@ function renderGridTable() {
 
 // Date Range Slider Listeners
 els.rangeStartInput.addEventListener("input", (e) => {
+  state.userAdjustedRange = true;
   let val = Number(e.target.value);
   if (val > state.rangeEndIdx) {
     val = state.rangeEndIdx;
@@ -2247,6 +2425,7 @@ els.rangeStartInput.addEventListener("input", (e) => {
 });
 
 els.rangeEndInput.addEventListener("input", (e) => {
+  state.userAdjustedRange = true;
   let val = Number(e.target.value);
   if (val < state.rangeStartIdx) {
     val = state.rangeStartIdx;
@@ -2261,6 +2440,7 @@ els.rangeEndInput.addEventListener("input", (e) => {
 });
 
 els.presetLast3Btn.addEventListener("click", () => {
+  state.userAdjustedRange = true;
   const maxIdx = Math.max(0, state.columns.length - 1);
   state.rangeEndIdx = maxIdx;
   state.rangeStartIdx = Math.max(0, maxIdx - 2);
@@ -2269,6 +2449,7 @@ els.presetLast3Btn.addEventListener("click", () => {
 });
 
 els.presetLast5Btn.addEventListener("click", () => {
+  state.userAdjustedRange = true;
   const maxIdx = Math.max(0, state.columns.length - 1);
   state.rangeEndIdx = maxIdx;
   state.rangeStartIdx = Math.max(0, maxIdx - 4);
@@ -2276,7 +2457,19 @@ els.presetLast5Btn.addEventListener("click", () => {
   renderAll();
 });
 
+if (els.presetLast7Btn) {
+  els.presetLast7Btn.addEventListener("click", () => {
+    state.userAdjustedRange = false;
+    const maxIdx = Math.max(0, state.columns.length - 1);
+    state.rangeEndIdx = maxIdx;
+    state.rangeStartIdx = Math.max(0, maxIdx - 6);
+    closePopover();
+    renderAll();
+  });
+}
+
 els.presetAllDatesBtn.addEventListener("click", () => {
+  state.userAdjustedRange = true;
   state.rangeStartIdx = 0;
   state.rangeEndIdx = Math.max(0, state.columns.length - 1);
   closePopover();
@@ -2334,6 +2527,7 @@ els.addRangeEventForm.addEventListener("submit", (e) => {
   list.push({ minute: upMin, time: minToTime(upMin), state: "up" });
   list.sort((a, b) => a.minute - b.minute);
   state.eventsByCol[col] = list;
+  markColumnDirty(col);
   saveScheduleToServer(
     `Added Down (${minToTime(downMin)}) & Up (${minToTime(upMin)}) to ${col}`
   );
@@ -2387,6 +2581,7 @@ els.dateForm.addEventListener("submit", (e) => {
     state.columns.push(val);
     state.eventsByCol[val] = [];
     state.activeDate = val;
+    markColumnDirty(val);
     els.dateForm.classList.add("hidden");
     saveScheduleToServer(`Added night ${val}`);
   } else if (state.dateFormMode === "rename" && state.activeDate) {
@@ -2397,7 +2592,12 @@ els.dateForm.addEventListener("submit", (e) => {
     }
     state.columns = state.columns.map((c) => (c === oldName ? val : c));
     state.eventsByCol[val] = state.eventsByCol[oldName] || [];
-    if (val !== oldName) delete state.eventsByCol[oldName];
+    if (val !== oldName) {
+      delete state.eventsByCol[oldName];
+      state.dirtyColumns.delete(oldName);
+      state.deletedColumns.add(oldName);
+    }
+    markColumnDirty(val);
     state.activeDate = val;
     els.dateForm.classList.add("hidden");
     saveScheduleToServer(`Renamed ${oldName} to ${val}`);
@@ -2407,6 +2607,7 @@ els.dateForm.addEventListener("submit", (e) => {
 els.clearDateBtn.addEventListener("click", () => {
   if (!state.activeDate) return;
   state.eventsByCol[state.activeDate] = [];
+  markColumnDirty(state.activeDate);
   saveScheduleToServer(`Cleared all transitions on ${state.activeDate}`);
 });
 
@@ -2417,8 +2618,13 @@ els.deleteDateBtn.addEventListener("click", () => {
     return;
   }
   const removed = state.activeDate;
+  if (!window.confirm(`Delete night "${removed}" and all of its transitions?`)) {
+    return;
+  }
   state.columns = state.columns.filter((c) => c !== removed);
   delete state.eventsByCol[removed];
+  state.dirtyColumns.delete(removed);
+  state.deletedColumns.add(removed);
   state.activeDate = state.columns[state.columns.length - 1];
   saveScheduleToServer(`Deleted night ${removed}`);
 });
@@ -2473,9 +2679,17 @@ window.addEventListener("keydown", (e) => {
 if (els.filterActiveRowsCheckbox) {
   els.filterActiveRowsCheckbox.addEventListener("change", renderGridTable);
 }
-els.showHoverGuideCheckbox.addEventListener("change", () =>
-  renderChartCanvas(false)
-);
+if (els.showHoverGuideCheckbox) {
+  els.showHoverGuideCheckbox.checked = false;
+  els.showHoverGuideCheckbox.addEventListener("change", () => {
+    if (!els.showHoverGuideCheckbox.checked) {
+      els.timelineCrosshairLine.style.display = "none";
+      els.axisHoverBadge.style.display = "none";
+      els.chartTooltip.classList.add("hidden");
+    }
+    renderChartCanvas(false);
+  });
+}
 
 els.exportCsvBtn.addEventListener("click", () => {
   const csvText = serializeCsvClient(state.columns, state.eventsByCol);
@@ -2512,20 +2726,34 @@ els.csvFileInput.addEventListener("change", async (e) => {
   state.columns = parsed.columns;
   state.eventsByCol = parsed.events_by_col;
   state.activeDate = parsed.columns[parsed.columns.length - 1] || null;
+  state.dirtyColumns.clear();
+  state.deletedColumns.clear();
+  state.fullReplacePending = true;
   saveScheduleToServer(`Imported CSV (${parsed.columns.length} nights)`);
 });
 
 els.resetDataBtn.addEventListener("click", async () => {
+  if (
+    !window.confirm(
+      "Reset the schedule to the default seed data? Any nights or transitions added after 27-Oct will be overwritten."
+    )
+  ) {
+    return;
+  }
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch (_) {}
+  state.dirtyColumns.clear();
+  state.deletedColumns.clear();
+  state.fullReplacePending = true;
   if (state.backendAvailable) {
     try {
       const res = await fetch("/api/reset", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         applyScheduleData(data);
-        showToast("Reset to original 19-Oct to 25-Oct schedule");
+        saveLocalState(false);
+        showToast("Reset to default schedule");
         return;
       }
     } catch (_) {}
@@ -2534,7 +2762,7 @@ els.resetDataBtn.addEventListener("click", async () => {
   state.columns = initial.columns;
   state.eventsByCol = initial.events_by_col;
   state.activeDate = initial.columns[initial.columns.length - 1];
-  saveScheduleToServer("Reset to original 19-Oct to 25-Oct schedule");
+  saveScheduleToServer("Reset to default schedule");
 });
 
 // ============================================================================
@@ -2636,18 +2864,8 @@ if (els.pinUnlockForm) {
       }
 
       els.pinUnlockInput.value = "";
-      let hasPendingLocal = false;
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved && JSON.parse(saved).pending_sync) {
-          hasPendingLocal = true;
-        }
-      } catch (_) {}
-      if (hasPendingLocal) {
-        await pushScheduleToGitHub(true);
-      } else {
-        await pullScheduleFromGitHub(false);
-      }
+      // Always pull first; pullScheduleFromGitHub automatically merges any dirtyColumns and pushes if needed
+      await pullScheduleFromGitHub(false);
       updateSyncUI();
       closeSyncModal();
     } catch (_) {
@@ -2786,15 +3004,24 @@ if (els.syncSetupForm) {
   });
 }
 
-// Auto-pull latest schedule when switching back to tab on phone or laptop
-document.addEventListener("visibilitychange", () => {
-  if (
-    document.visibilityState === "visible" &&
-    state.githubSync.unlocked &&
-    !state.githubSync.isPushing
-  ) {
+// Auto-pull latest schedule when switching back to tab or window on phone or laptop
+function maybeAutoPullOnFocus() {
+  const gs = state.githubSync;
+  if (!gs.unlocked || gs.isPushing || gs.pushTimer) return;
+  const elapsed = gs.lastSyncedAt ? Date.now() - gs.lastSyncedAt.getTime() : Infinity;
+  if (elapsed > 5000) {
     pullScheduleFromGitHub(true);
   }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    maybeAutoPullOnFocus();
+  }
+});
+
+window.addEventListener("focus", () => {
+  maybeAutoPullOnFocus();
 });
 
 // Initialize on load
